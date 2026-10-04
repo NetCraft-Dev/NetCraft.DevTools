@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    NetCraft 开发辅助工具包。
+    打包成 dotnet tool 之后以 ncm 调用 例如 ncm icon。
+    Core 放通用能力 Tools 放各个工具 每个工具自己往注册表里登记名字与说明。
+    主程序不带参数或参数不认识时打印帮助。
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>NetCraft.ModBuild</RootNamespace>
+
+    <!--打包成 dotnet tool 安装后命令名是 ncm-->
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>ncm</ToolCommandName>
+    <PackageId>NetCraft.ModBuild.Tools</PackageId>
+    <Description>NetCraft mod development helper tools</Description>
+  </PropertyGroup>
+
+  <!--图标字体内嵌 生成图标时直接读资源 不依赖目标机器装了什么字体-->
+  <ItemGroup>
+    <EmbeddedResource Include="..\iconttf.ttf" LogicalName="iconttf.ttf" />
+  </ItemGroup>
+
+  <!--面板的页面与 markdown 渲染库都内嵌 起窗时不依赖外部文件也不联网-->
+  <ItemGroup>
+    <EmbeddedResource Include="Gui\ui.html" LogicalName="ui.html" />
+    <EmbeddedResource Include="Gui\marked.min.js" LogicalName="marked.min.js" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="ICSharpCode.Decompiler" Version="11.1.0.9782" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+    <PackageReference Include="Photino.NET" Version="4.0.16" />
+    <PackageReference Include="SixLabors.ImageSharp.Drawing" Version="2.1.5" />
+    <PackageReference Include="YamlDotNet" Version="18.1.0" />
+  </ItemGroup>
+
+</Project>

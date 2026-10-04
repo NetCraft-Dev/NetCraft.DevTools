@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    NetCraft 模组项目模板包。
+    打包后 dotnet new install NetCraft.ModsProjectType 即可用 dotnet new ncm 创建模组项目。
+    模板里的 content/ncm/libs/ 是要随包发出去的引用程序集 所以 pack 前会从 reference/ 同步一次
+    免得发出去的还是老接口。
+  -->
+
+  <PropertyGroup>
+    <PackageType>Template</PackageType>
+    <PackageId>NetCraft.ModsProjectType</PackageId>
+    <Version>0.1.0</Version>
+    <Description>NetCraft 模组项目模板 用 dotnet new ncm 创建</Description>
+    <TargetFramework>net10.0</TargetFramework>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
+    <!--NU5128 空依赖组 NU5100 模板里的引用程序集本来就不该放 lib/ 下-->
+    <NoWarn>$(NoWarn);NU5128;NU5100</NoWarn>
+    <!--模板内容里有 .cs 它们是给生成的项目用的 不能当成这个包自己的源码-->
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <!--同步来源 默认取本仓库的 reference/ 换目录时覆盖它-->
+    <NetCraftRuntimeDir Condition="'$(NetCraftRuntimeDir)' == ''">$(MSBuildThisFileDirectory)..\reference</NetCraftRuntimeDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      模板文件全量进包。
+      排除 libs 是因为它由 SyncNetCraftLibs 单独挂 排除 obj 与 bin 是因为模板目录
+      被 IDE 或构建碰过之后会留下中间产物 它们进包会跟着落到新项目里。
+    -->
+    <None Include="content\**\*"
+          Exclude="content\ncm\libs\**\*;content\ncm\obj\**\*;content\ncm\bin\**\*"
+          Pack="true" PackagePath="content\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!--
+    SyncNetCraftLibs 把内核引用程序集同步进模板 并把它们挂进包。
+    同步要在 _GetPackageFiles 之前 挂包项也必须在这一刻做 —— 首次打包时 libs/ 还不存在
+    光靠评估阶段的 None 通配符匹配不到它 结果就是包出了但里面没有引用程序集。
+  -->
+  <Target Name="SyncNetCraftLibs" BeforeTargets="_GetPackageFiles">
+    <ItemGroup>
+      <NetCraftLibSource Include="$(NetCraftRuntimeDir)\*.dll" />
+      <NetCraftLibOutput Include="$(MSBuildThisFileDirectory)content\ncm\libs" />
+    </ItemGroup>
+    <Error Condition="'@(NetCraftLibSource)' == ''"
+           Text="没找到 NC 引用程序集 检查 NetCraftRuntimeDir 指向的目录 $(NetCraftRuntimeDir)" />
+    <MakeDir Directories="@(NetCraftLibOutput)" />
+    <Copy SourceFiles="@(NetCraftLibSource)" DestinationFolder="@(NetCraftLibOutput)" SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <None Include="$(MSBuildThisFileDirectory)content\ncm\libs\*.dll" Pack="true" PackagePath="content\ncm\libs\" />
+    </ItemGroup>
+    <Message Importance="high" Text="已同步 NC 引用程序集 @(NetCraftLibSource->Count()) 个 → content\ncm\libs" />
+  </Target>
+
+</Project>

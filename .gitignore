@@ -1,0 +1,9 @@
+[Bb]in/
+[Oo]bj/
+obj_v/
+.vs/
+.idea/
+*.user
+*.suo
+*.swp
+*.bak

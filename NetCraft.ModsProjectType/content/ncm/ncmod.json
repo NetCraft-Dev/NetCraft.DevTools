@@ -1,0 +1,19 @@
+{
+  "id": "__MOD_ID__",
+  "version": "0.1.0",
+  "name": "NcModTemplate",
+  "description": "Rewrite this line; it shows up on the mods page",
+  "authors": [],
+  "contributors": [],
+  "license": "",
+  "contact": {
+    "homepage": "",
+    "sources": "",
+    "issues": ""
+  },
+  "environment": "__MOD_ENV__",
+  "entry": "NcModTemplate.ModEntry",
+  "depends": {},
+  "hooks": [],
+  "icon": "icon.png"
+}

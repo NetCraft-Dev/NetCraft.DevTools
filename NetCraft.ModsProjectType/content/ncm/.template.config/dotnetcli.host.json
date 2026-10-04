@@ -1,0 +1,9 @@
+{
+  "$schema": "http://json.schemastore.org/template",
+  "symbolInfo": {
+    "environment": {
+      "longName": "environment",
+      "shortName": "e"
+    }
+  }
+}
