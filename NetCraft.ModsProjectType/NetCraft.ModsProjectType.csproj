@@ -12,6 +12,7 @@
     <PackageId>NetCraft.ModsProjectType</PackageId>
     <Version>0.1.0</Version>
     <Description>NetCraft 模组项目模板 用 dotnet new ncm 创建</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <TargetFramework>net10.0</TargetFramework>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>

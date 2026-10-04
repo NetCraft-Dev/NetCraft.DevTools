@@ -19,6 +19,7 @@
     <ToolCommandName>ncm</ToolCommandName>
     <PackageId>NetCraft.ModBuild.Tools</PackageId>
     <Description>NetCraft mod development helper tools</Description>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
   </PropertyGroup>
 
   <!--图标字体内嵌 生成图标时直接读资源 不依赖目标机器装了什么字体-->
