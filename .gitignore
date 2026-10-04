@@ -7,3 +7,6 @@ obj_v/
 *.suo
 *.swp
 *.bak
+
+# 本地发版脚本 带 nuget 密钥不进仓库
+updata.ps1
