@@ -11,6 +11,15 @@ $ToolId = "NetCraft.ModBuild.Tools"
 $InstallRoot = Join-Path $env:USERPROFILE ".dotnet"
 $ToolsDir = Join-Path $InstallRoot "tools"
 
+#Invoke-Dotnet 跑一条 dotnet 命令 退出码非零直接终止脚本
+#原生命令失败不会触发 $ErrorActionPreference 不自己看退出码就会一路跑到末尾报成功
+function Invoke-Dotnet([string[]]$Command) {
+    & dotnet @Command
+    if ($LASTEXITCODE -ne 0) {
+        throw "dotnet $($Command -join ' ') failed with exit code $LASTEXITCODE"
+    }
+}
+
 #Test-Command 命令在不在 PATH 上
 function Test-Command([string]$Name) {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
@@ -30,6 +39,7 @@ function Install-Sdk {
     Invoke-WebRequest "https://dot.net/v1/dotnet-install.ps1" -OutFile $script -UseBasicParsing
     Write-Host "installing .NET SDK $Channel into $InstallRoot"
     & $script -Channel $Channel -InstallDir $InstallRoot -NoPath
+    if ($LASTEXITCODE -ne 0) { throw "dotnet-install.ps1 failed with exit code $LASTEXITCODE" }
     Remove-Item $script -Force
 }
 
@@ -53,7 +63,7 @@ Write-Host "==> installing project template"
 #站到临时目录再装 当前目录同名的目录会被优先当成模板路径 那样装进去的是本地源码不是 nuget 包
 Push-Location $env:TEMP
 try {
-    & dotnet new install $TemplateId --force
+    Invoke-Dotnet @("new", "install", $TemplateId, "--force")
 }
 finally {
     Pop-Location
@@ -61,12 +71,12 @@ finally {
 
 Write-Host "==> installing ncm"
 
-$globalTools = & dotnet tool list -g 2>$null
+$globalTools = Invoke-Dotnet @("tool", "list", "-g")
 if ($globalTools -match $ToolId) {
-    & dotnet tool update -g $ToolId
+    Invoke-Dotnet @("tool", "update", "-g", $ToolId)
 }
 else {
-    & dotnet tool install -g $ToolId
+    Invoke-Dotnet @("tool", "install", "-g", $ToolId)
 }
 
 Write-Host "==> verifying"
