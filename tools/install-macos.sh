@@ -75,7 +75,11 @@ export PATH
 
 echo "==> installing project template"
 
-dotnet new install "$TEMPLATE_ID"
+#站到临时目录再装 当前目录同名的目录会被优先当成模板路径 那样装进去的是本地源码不是 nuget 包
+(
+    cd "$(mktemp -d)"
+    dotnet new install "$TEMPLATE_ID" --force
+)
 
 echo "==> installing ncm"
 

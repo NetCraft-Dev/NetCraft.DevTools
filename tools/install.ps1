@@ -50,7 +50,14 @@ $env:PATH = "$ToolsDir;$env:PATH"
 
 Write-Host "==> installing project template"
 
-& dotnet new install $TemplateId
+#站到临时目录再装 当前目录同名的目录会被优先当成模板路径 那样装进去的是本地源码不是 nuget 包
+Push-Location $env:TEMP
+try {
+    & dotnet new install $TemplateId --force
+}
+finally {
+    Pop-Location
+}
 
 Write-Host "==> installing ncm"
 
