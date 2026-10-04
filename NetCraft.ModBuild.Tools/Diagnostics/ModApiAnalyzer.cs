@@ -34,17 +34,17 @@ public static class ModApiAnalyzer
                 unknown ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
                 unknown ? UnknownTypeCode : UnknownMemberCode,
                 unknown
-                    ? $"清单里没有类型 `{item.Type}`"
-                    : $"类型 `{item.Type}` 没有成员 `{item.Member}`",
+                    ? $"the catalog does not declare type `{item.Type}`"
+                    : $"type `{item.Type}` has no member `{item.Member}`",
                 location?.File ?? "?",
                 location?.Line ?? 0,
                 Math.Max(1, column),
                 item.Symbol.Length,
                 location?.Text ?? string.Empty,
                 unknown
-                    ? "清单是权威 api 名单 核心里能用的类型都登记在上面"
-                    : $"`{item.Member}` 不在 {item.Type} 的成员表里",
-                unknown ? "清单里登记的类型" : $"清单里 {item.Type} 登记的成员",
+                    ? "the name may be misspelled; the catalog is the authoritative api list"
+                    : $"`{item.Member}` is not a member of {item.Type}",
+                unknown ? "Closest names in the catalog" : "Members this type actually has",
                 item.Candidates));
         }
 

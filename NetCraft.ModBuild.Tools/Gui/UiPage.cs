@@ -74,15 +74,15 @@ internal static class UiPage
     private static string LoadDocument(TemplateCatalog? catalog)
     {
         if (catalog is null)
-            return "# 没有可用的清单\n\n清单没能加载，检查网络或本地 `Template` 缓存目录。";
+            return "# No catalog available\n\nThe catalog could not be loaded. Check the network, or the local `Template` cache directory.";
 
         if (string.IsNullOrWhiteSpace(catalog.Document))
-            return "# 清单没有指定文档\n\n去 `NetCraftTemplate.yaml` 里补一个 `document` 字段。";
+            return "# The catalog declares no document\n\nAdd a `document` field to `NetCraftTemplate.yaml`.";
 
         var url = catalog.ResolveUrl(catalog.Document);
         var path = TemplateStore.FetchFile(url, catalog.Document, out var error);
         if (path is null)
-            return $"# 文档没能取到\n\n`{url}`\n\n```\n{error}\n```";
+            return $"# The document could not be fetched\n\n`{url}`\n\n```\n{error}\n```";
 
         return File.ReadAllText(path);
     }

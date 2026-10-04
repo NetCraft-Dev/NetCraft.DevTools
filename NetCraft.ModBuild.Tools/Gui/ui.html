@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
 <meta charset="utf-8">
-<title>NetCraft 模板</title>
+<title>NetCraft Template</title>
 <style>
   :root {
     --line: #d0d7de;
@@ -159,12 +159,12 @@
 </head>
 <body>
   <div id="side">
-    <div class="cap">项目 API 用法</div>
+    <div class="cap">Project API usage</div>
     <div id="usageList"></div>
   </div>
   <div id="main">
     <div id="header">
-      <h1>NetCraft 模板</h1>
+      <h1>NetCraft Template</h1>
       <div id="legend"></div>
     </div>
     <div id="doc"></div>
@@ -181,8 +181,8 @@ const docEl = document.getElementById('doc');
 const detailEl = document.getElementById('detail');
 const legendEl = document.getElementById('legend');
 
-const STATE_LABEL = { ok: '正确', warn: '可疑', missing: '不存在' };
-const STATE_TEXT = { ok: '用法正确', warn: '这个方法不在清单里', missing: '清单里没有这个 api' };
+const STATE_LABEL = { ok: 'correct', warn: 'suspicious', missing: 'unknown' };
+const STATE_TEXT = { ok: 'the usage is correct', warn: 'this member is not declared in the catalog', missing: 'this type is not declared in the catalog' };
 
 const bySymbol = {};
 const usageItems = DATA.usage || [];
@@ -201,7 +201,7 @@ function renderLegend() {
     if (counts[item.state] !== undefined) counts[item.state] += 1;
   });
 
-  legendEl.appendChild(document.createTextNode('项目里用到 ' + usageItems.length + ' 个模组 api：'));
+  legendEl.appendChild(document.createTextNode('Project uses ' + usageItems.length + ' mod api symbol(s):'));
   ['ok', 'warn', 'missing'].forEach(function (state) {
     const dot = document.createElement('span');
     dot.className = 'dot ' + state;
@@ -289,7 +289,7 @@ function renderDetail(item) {
 
   const back = document.createElement('button');
   back.id = 'back';
-  back.textContent = '← 回到文档';
+  back.textContent = '← Back to the document';
   back.onclick = showDocument;
   detailEl.appendChild(back);
 
@@ -308,18 +308,18 @@ function renderDetail(item) {
   detailEl.appendChild(head);
 
   detailEl.appendChild(item.state === 'warn'
-    ? leadParagraph(['类型 ', { code: item.type }, ' 已经登记在清单里，但它没有成员 ', { code: item.member }, '。'])
-    : leadParagraph(['清单里没有 ', { code: item.type }, ' 这个类型，用到的名字可能写错了。']));
+    ? leadParagraph(['Type ', { code: item.type }, ' is declared, but it has no member ', { code: item.member }, '.'])
+    : leadParagraph(['The catalog does not declare ', { code: item.type }, '; the name may be misspelled.']));
 
   const locTitle = document.createElement('h3');
-  locTitle.textContent = '源码里出现的位置';
+  locTitle.textContent = 'Where it appears in the source';
   detailEl.appendChild(locTitle);
 
   const locations = item.locations || [];
   if (locations.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = '没有记录到位置。';
+    empty.textContent = 'No locations recorded.';
     detailEl.appendChild(empty);
   }
 
@@ -342,14 +342,14 @@ function renderDetail(item) {
   });
 
   const fixTitle = document.createElement('h3');
-  fixTitle.textContent = item.state === 'warn' ? '这个类型实际有的成员' : '清单里名字最接近的类型';
+  fixTitle.textContent = item.state === 'warn' ? 'Members this type actually has' : 'Closest names in the catalog';
   detailEl.appendChild(fixTitle);
 
   const candidates = item.candidates || [];
   if (candidates.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = '没有更接近的名字。';
+    empty.textContent = 'No closer name.';
     detailEl.appendChild(empty);
     return;
   }
@@ -425,7 +425,7 @@ function highlightUsage(root) {
 function showDocument() {
   detailEl.style.display = 'none';
   docEl.style.display = 'block';
-  docEl.innerHTML = marked.parse(DATA.document || '（清单没有提供文档）');
+  docEl.innerHTML = marked.parse(DATA.document || '(the catalog provides no document)');
   docEl.scrollTop = 0;
   highlightUsage(docEl);
   markActive(null);

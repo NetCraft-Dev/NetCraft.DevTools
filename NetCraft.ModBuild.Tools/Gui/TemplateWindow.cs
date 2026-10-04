@@ -22,7 +22,7 @@ internal static class TemplateWindow
         var window = new PhotinoWindow()
             //静音 Photino 自己那份 API 调用日志 否则每设一个属性就往控制台刷一行
             .SetLogVerbosity(0)
-            .SetTitle("NetCraft 模板浏览")
+            .SetTitle("NetCraft Template Browser")
             .SetUseOsDefaultSize(false)
             .SetSize(WindowWidth, WindowHeight)
             .SetResizable(true)
