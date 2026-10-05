@@ -20,7 +20,7 @@ internal static class BuildTool
             new("-c, --configuration <name>", "Build configuration, defaults to Release"),
             new("--no-check", "Skip the api and syntax checks and run dotnet build directly"),
             new("--check-only", "Run the api and syntax checks only, build nothing"),
-            new("--no-manifest", "Skip the ncmod.json lookup, check the current directory as a plain C# project"),
+            new("--no-manifest", "Skip the ncmod.json lookup, treat the current directory as a plain C# project (must contain a csproj)"),
         ]);
 
     //Run 解析参数 诊断 构建 收产物
@@ -76,7 +76,17 @@ internal static class BuildTool
             return 1;
         }
 
-        //没有清单时把当前目录当项目根 名字取目录名
+        //没有清单时把当前目录当一个普通 C# 项目 它得真有 csproj
+        //否则一路递归下去会把子项目与模板里的示例源码都当成这个项目的源码
+        if (project is null && !HasCsproj(Environment.CurrentDirectory))
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("error: no .csproj in this directory, this is not a valid C# project");
+            Console.ResetColor();
+            return 1;
+        }
+
+        //没有清单时 root 取当前目录 名字取目录名
         var root = project is null
             ? Environment.CurrentDirectory
             : Path.GetDirectoryName(project.ManifestPath)!;
@@ -98,6 +108,10 @@ internal static class BuildTool
 
         return CollectOutput(root, configuration);
     }
+
+    //HasCsproj 目录下有没有工程文件 有才把这里当成一个普通 C# 项目
+    private static bool HasCsproj(string directory)
+        => Directory.EnumerateFiles(directory, "*.csproj").Any();
 
     //RunChecks 构建前把 api 用法与 C# 语法语义都过一遍
     private static bool RunChecks(string root)
