@@ -11,9 +11,19 @@ internal static class InitTool
     //TemplateShortName dotnet new 用的模板短名
     private const string TemplateShortName = "ncm";
 
-    //Register 把本工具登记进注册表 名字与说明都写在这一行
+    //Register 把本工具登记进注册表 名字说明与参数都写在这一行
+    //位置参数顺序与表单一致 一个都不给就走交互问答
     public static void Register()
-        => ToolRegistry.Register("init", "Create a new NetCraft mod project in a subdirectory", Run);
+        => ToolRegistry.Register("init", "Create a new NetCraft mod project in a subdirectory", Run,
+        [
+            new("<name>", "Mod name, required"),
+            new("[id]", "Mod id, derived from the name when omitted"),
+            new("[description]", "Mod description"),
+            new("[authors]", "Comma separated author names"),
+            new("[homepage]", "Homepage url"),
+            new("[sources]", "Source repository url"),
+            new("[license]", "License name"),
+        ]);
 
     //Run 收集内容再落地
     //不带参数走表单问答 带参数就按位置直接取值 顺序与表单一致 一个都不问

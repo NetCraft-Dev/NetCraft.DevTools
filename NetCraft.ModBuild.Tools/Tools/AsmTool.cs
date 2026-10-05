@@ -14,9 +14,17 @@ namespace NetCraft.ModBuild.Tools;
 //摘要与详情走元数据 反编译那一档交给 ICSharpCode.Decompiler 直接给 C# 源码而不是 IL
 internal static class AsmTool
 {
-    //Register 把本工具登记进注册表
+    //Register 把本工具登记进注册表 名字说明与参数都写在这一行
     public static void Register()
-        => ToolRegistry.Register("asm", "Inspect a .NET assembly: type list, type details, decompiled source, dependencies", Run);
+        => ToolRegistry.Register("asm", "Inspect a .NET assembly: type list, type details, decompiled source, dependencies", Run,
+        [
+            new("<assembly>", "Path to a .NET assembly"),
+            new("-t, --type <name>", "Show type details"),
+            new("-d, --decompile <name>", "Decompile a type to C# source"),
+            new("-dep, --dependencies", "List assembly dependencies"),
+            new("-r, --reference <dir>", "Extra directory to look for dependencies, repeatable"),
+            new("-o, --output <file>", "Write the result to a file instead of the console"),
+        ]);
 
     //Mode 这次要出什么东西
     private enum Mode { Summary, Details, Decompile, Dependencies }

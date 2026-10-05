@@ -8,9 +8,16 @@ namespace NetCraft.ModBuild.Tools;
 //清单与示例文件都缓存在程序根目录的 Template 下 只有本地没有时才联网
 internal static class TemplateTool
 {
-    //Register 把本工具登记进注册表 名字与说明都写在这一行
+    //Register 把本工具登记进注册表 名字说明与参数都写在这一行
     public static void Register()
-        => ToolRegistry.Register("template", "Browse and pull mod templates", Run);
+        => ToolRegistry.Register("template", "Browse and pull mod templates", Run,
+        [
+            new("view [pattern]", "List template entries, ? and * work as wildcards"),
+            new("example <api id>", "Pull the example file of an entry into the current directory"),
+            new("gui", "Open the template panel in a window"),
+            new("tui", "Open the terminal panel, grading the api usage of the project"),
+            new("--refresh", "Clear the local cache first and pull everything again"),
+        ]);
 
     //RefreshOption 清掉本地缓存再重新拉 放在子命令前后都行
     private const string RefreshOption = "--refresh";

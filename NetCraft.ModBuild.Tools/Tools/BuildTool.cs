@@ -13,15 +13,21 @@ internal static class BuildTool
     //OutputDirectoryName 产物收拢目录 自动开服与自动开客户端那两条链路都从这里取
     private const string OutputDirectoryName = "Build";
 
-    //Register 把本工具登记进注册表 名字与说明都写在这一行
+    //Register 把本工具登记进注册表 名字说明与参数都写在这一行
     public static void Register()
-        => ToolRegistry.Register("build", "Diagnose and build the mod project in the current directory", Run);
+        => ToolRegistry.Register("build", "Diagnose and build the mod project in the current directory", Run,
+        [
+            new("-c, --configuration <name>", "Build configuration, defaults to Release"),
+            new("--no-check", "Skip the api and syntax checks and run dotnet build directly"),
+            new("--check-only", "Run the api and syntax checks only, build nothing"),
+        ]);
 
     //Run 解析参数 诊断 构建 收产物
     private static int Run(string[] args)
     {
         var configuration = DefaultConfiguration;
         var check = true;
+        var checkOnly = false;
 
         for (var index = 0; index < args.Length; index++)
         {
@@ -39,11 +45,21 @@ internal static class BuildTool
                 case "--no-check":
                     check = false;
                     break;
+                case "--check-only":
+                    checkOnly = true;
+                    break;
                 default:
                     Console.WriteLine($"error: unknown build option {args[index]}");
-                    Console.WriteLine("Usage: ncm build [-c|--configuration <name>] [--no-check]");
+                    Console.WriteLine("Usage: ncm build [-c|--configuration <name>] [--no-check] [--check-only]");
                     return 1;
             }
+        }
+
+        //两个开关凑一起就没东西可做 直接挡掉
+        if (checkOnly && !check)
+        {
+            Console.WriteLine("error: --check-only and --no-check cannot be used together");
+            return 1;
         }
 
         var project = ModProject.TryFind(Environment.CurrentDirectory);
@@ -57,11 +73,16 @@ internal static class BuildTool
 
         var root = Path.GetDirectoryName(project.ManifestPath)!;
 
-        Console.WriteLine($"Building {project.DisplayName} ({configuration})");
+        var action = checkOnly ? "Checking" : "Building";
+        Console.WriteLine($"{action} {project.DisplayName} ({configuration})");
         Console.WriteLine();
 
         if (check && !RunChecks(root))
             return 1;
+
+        //只要检查结果 到这儿就收工 不落构建产物
+        if (checkOnly)
+            return 0;
 
         if (!RunDotnetBuild(root, configuration))
             return 1;

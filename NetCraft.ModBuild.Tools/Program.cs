@@ -18,8 +18,18 @@ public static class Program
         AsmTool.Register();
         UpdateTool.Register();
 
-        if (args.Length == 0 || args[0] is "help" or "--help" or "-h")
+        if (args.Length == 0)
         {
+            Help.Print(Console.Out);
+            return 0;
+        }
+
+        //help 后面跟工具名就看那一个工具的参数 不带就跟整个列表
+        if (args[0] is "help" or "--help" or "-h")
+        {
+            if (args.Length > 1)
+                return Help.PrintTool(Console.Out, args[1]);
+
             Help.Print(Console.Out);
             return 0;
         }

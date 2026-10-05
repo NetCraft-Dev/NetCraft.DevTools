@@ -31,18 +31,38 @@ internal static class IconTool
     //Family 内嵌字体只解析一次
     private static readonly Lazy<FontFamily> Family = new(LoadFamily);
 
-    //Register 把本工具登记进注册表 名字与说明都写在这一行
+    //Register 把本工具登记进注册表 名字说明与参数都写在这一行
     public static void Register()
-        => ToolRegistry.Register("icon", "Generate a white background mod icon with the mod name", Run);
+        => ToolRegistry.Register("icon", "Generate a white background mod icon with the mod name", Run,
+        [
+            new("-f, --force", "Overwrite an existing icon without asking"),
+        ]);
 
     //Run 执行 当前不在模组项目下时静默退出
     private static int Run(string[] args)
     {
+        var force = false;
+        foreach (var arg in args)
+        {
+            switch (arg)
+            {
+                case "-f":
+                case "--force":
+                    force = true;
+                    break;
+                default:
+                    Console.WriteLine($"error: unknown icon option {arg}");
+                    Console.WriteLine("Usage: ncm icon [--force]");
+                    return 1;
+            }
+        }
+
         var project = ModProject.TryFind(Environment.CurrentDirectory);
         if (project is null)
             return 0;
 
-        if (File.Exists(project.IconPath) && !ConfirmOverwrite(project.IconPath))
+        //带 force 就不问那一句 直接盖掉
+        if (!force && File.Exists(project.IconPath) && !ConfirmOverwrite(project.IconPath))
             return 0;
 
         Generate(project);
