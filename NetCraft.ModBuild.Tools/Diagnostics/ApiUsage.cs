@@ -50,6 +50,12 @@ public sealed class ApiUsage
     //MaxLocations 一个符号最多记几处出现
     private const int MaxLocations = 3;
 
+    //TypeDeclaration 源码里定义类型的几种写法 用它把项目自己的类型摘出清单校验
+    //清单管的是内核暴露给模组的 api 项目自己声明的类型不归它管 写错了编译期就知道
+    private static readonly Regex TypeDeclaration = new(
+        @"\b(?:class|struct|interface|enum|record)\s+(?:class\s+|struct\s+)?([A-Za-z_][A-Za-z0-9_]*)",
+        RegexOptions.Compiled);
+
     private readonly Dictionary<string, ApiUsageItem> _items = new(StringComparer.Ordinal);
 
     //Items 每一处用法与它的信息
@@ -83,6 +89,10 @@ public sealed class ApiUsage
         var files = SourceFiles.Enumerate(root).ToList();
         Trace.Log($"scanned {files.Count} source file(s) under {root}");
 
+        //先把整份源码读进来 项目自己定义的类型要一次收齐
+        //边读边扫的话 前面文件引用后面文件定义的类型会被当成清单里没有
+        var sources = new List<(string File, string Text)>(files.Count);
+        var defined = new HashSet<string>(StringComparer.Ordinal);
         foreach (var file in files)
         {
             string text;
@@ -96,6 +106,14 @@ public sealed class ApiUsage
                 continue;
             }
 
+            sources.Add((file, text));
+            foreach (Match declaration in TypeDeclaration.Matches(text))
+                defined.Add(declaration.Groups[1].Value);
+        }
+        Trace.Log($"found {defined.Count} type declaration(s) in the project itself");
+
+        foreach (var (file, text) in sources)
+        {
             foreach (Match match in pattern.Matches(text))
             {
                 var type = match.Groups[1].Value;
@@ -104,7 +122,10 @@ public sealed class ApiUsage
 
                 if (!usage._items.TryGetValue(symbol, out var item))
                 {
-                    var state = Judge(members, type, member);
+                    //项目自己声明的类型直接算过 清单里有没有同名的都不该拿来说事
+                    var state = defined.Contains(type)
+                        ? UsageState.Ok
+                        : Judge(members, type, member);
                     item = new ApiUsageItem
                     {
                         Symbol = symbol,

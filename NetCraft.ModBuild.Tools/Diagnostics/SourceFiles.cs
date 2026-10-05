@@ -8,9 +8,12 @@ internal static class SourceFiles
     private static readonly string[] SkippedDirectories = { "bin", "obj" };
 
     //Enumerate 项目里的全部 .cs
-    public static IEnumerable<string> Enumerate(string root)
+    public static IEnumerable<string> Enumerate(string root) => Enumerate(root, "*.cs");
+
+    //Enumerate 按后缀收文件 生成器要读的 axaml 之类从这条走
+    public static IEnumerable<string> Enumerate(string root, string pattern)
     {
-        foreach (var path in Directory.EnumerateFiles(root, "*.cs", SearchOption.AllDirectories))
+        foreach (var path in Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories))
         {
             if (!IsGenerated(root, path))
                 yield return path;
