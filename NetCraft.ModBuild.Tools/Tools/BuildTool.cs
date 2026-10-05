@@ -20,6 +20,7 @@ internal static class BuildTool
             new("-c, --configuration <name>", "Build configuration, defaults to Release"),
             new("--no-check", "Skip the api and syntax checks and run dotnet build directly"),
             new("--check-only", "Run the api and syntax checks only, build nothing"),
+            new("--no-manifest", "Skip the ncmod.json lookup, check the current directory as a plain C# project"),
         ]);
 
     //Run 解析参数 诊断 构建 收产物
@@ -28,6 +29,7 @@ internal static class BuildTool
         var configuration = DefaultConfiguration;
         var check = true;
         var checkOnly = false;
+        var noManifest = false;
 
         for (var index = 0; index < args.Length; index++)
         {
@@ -48,9 +50,12 @@ internal static class BuildTool
                 case "--check-only":
                     checkOnly = true;
                     break;
+                case "--no-manifest":
+                    noManifest = true;
+                    break;
                 default:
                     Console.WriteLine($"error: unknown build option {args[index]}");
-                    Console.WriteLine("Usage: ncm build [-c|--configuration <name>] [--no-check] [--check-only]");
+                    Console.WriteLine("Usage: ncm build [-c|--configuration <name>] [--no-check] [--check-only] [--no-manifest]");
                     return 1;
             }
         }
@@ -63,7 +68,7 @@ internal static class BuildTool
         }
 
         var project = ModProject.TryFind(Environment.CurrentDirectory);
-        if (project is null)
+        if (project is null && !noManifest)
         {
             Console.ForegroundColor = ConsoleColor.Red;
             Console.WriteLine($"error: no {ModProject.ManifestName} in this directory or any parent");
@@ -71,10 +76,14 @@ internal static class BuildTool
             return 1;
         }
 
-        var root = Path.GetDirectoryName(project.ManifestPath)!;
+        //没有清单时把当前目录当项目根 名字取目录名
+        var root = project is null
+            ? Environment.CurrentDirectory
+            : Path.GetDirectoryName(project.ManifestPath)!;
+        var display = project?.DisplayName ?? new DirectoryInfo(root).Name;
 
         var action = checkOnly ? "Checking" : "Building";
-        Console.WriteLine($"{action} {project.DisplayName} ({configuration})");
+        Console.WriteLine($"{action} {display} ({configuration})");
         Console.WriteLine();
 
         if (check && !RunChecks(root))
