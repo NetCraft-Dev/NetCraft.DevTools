@@ -13,6 +13,9 @@ internal static class BuildTool
     //OutputDirectoryName 产物收拢目录 自动开服与自动开客户端那两条链路都从这里取
     private const string OutputDirectoryName = "Build";
 
+    //OutputPath 项目根下的产物目录 自动开服那条链路按它搬产物
+    internal static string OutputPath(string root) => Path.Combine(root, OutputDirectoryName);
+
     //Register 把本工具登记进注册表 名字说明与参数都写在这一行
     public static void Register()
         => ToolRegistry.Register("build", "Diagnose and build the mod project in the current directory", Run,
@@ -24,7 +27,8 @@ internal static class BuildTool
         ]);
 
     //Run 解析参数 诊断 构建 收产物
-    private static int Run(string[] args)
+    //命令行走这里 自动开服那条链路直接调它 参数为空即默认配置加全量检查
+    internal static int Run(string[] args)
     {
         var configuration = DefaultConfiguration;
         var check = true;
@@ -186,7 +190,7 @@ internal static class BuildTool
             return 1;
         }
 
-        var target = Path.Combine(root, OutputDirectoryName);
+        var target = OutputPath(root);
         Directory.CreateDirectory(target);
 
         var copied = 0;

@@ -16,6 +16,7 @@ public static class Program
         TemplateTool.Register();
         BuildTool.Register();
         AsmTool.Register();
+        RunServerTool.Register();
         UpdateTool.Register();
 
         if (args.Length == 0)
