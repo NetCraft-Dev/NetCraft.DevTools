@@ -156,6 +156,8 @@ internal static class InitTool
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
+        //ncm 的输出统一走英文 子进程别跟着系统语言变
+        startInfo.Environment["DOTNET_CLI_UI_LANGUAGE"] = "en";
         startInfo.ArgumentList.Add("new");
         startInfo.ArgumentList.Add(TemplateShortName);
         startInfo.ArgumentList.Add("-n");

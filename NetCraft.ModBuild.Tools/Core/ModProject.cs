@@ -43,12 +43,12 @@ public sealed class ModProject
             var manifest = Path.Combine(current.FullName, ManifestName);
             if (File.Exists(manifest))
             {
-                Trace.Log($"找到模组清单 {manifest}");
+                Trace.Log($"found mod manifest {manifest}");
                 return Read(manifest, current.FullName);
             }
         }
 
-        Trace.Log($"从 {directory} 起逐级向上都没有 {ManifestName} 当前不在模组项目里");
+        Trace.Log($"no {ManifestName} from {directory} upward, not inside a mod project");
         return null;
     }
 
@@ -71,14 +71,14 @@ public sealed class ModProject
         }
         catch (JsonException e)
         {
-            Trace.Log($"清单 {manifestPath} 不是合法 json {e.Message}");
+            Trace.Log($"manifest {manifestPath} is not valid json: {e.Message}");
             return null;
         }
 
         var displayName = string.IsNullOrWhiteSpace(name) ? id : name;
         if (string.IsNullOrWhiteSpace(displayName))
         {
-            Trace.Log($"清单 {manifestPath} 既没有 name 也没有 id 当没有项目处理");
+            Trace.Log($"manifest {manifestPath} has neither name nor id, treating it as no project");
             return null;
         }
 

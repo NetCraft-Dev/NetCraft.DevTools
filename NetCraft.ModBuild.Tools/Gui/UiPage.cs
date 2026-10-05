@@ -27,7 +27,7 @@ internal static class UiPage
     public static string Build(TemplateCatalog? catalog)
     {
         var data = JsonSerializer.Serialize(new Payload(LoadDocument(catalog), ScanUsage(catalog)), Json);
-        Trace.Log($"页面数据 {data.Length} 字符");
+        Trace.Log($"page payload {data.Length} chars");
         return Page.Value.Replace(MarkedToken, Marked.Value).Replace(DataToken, data);
     }
 
@@ -39,14 +39,14 @@ internal static class UiPage
         if (catalog is null)
             return items;
 
-        Trace.Log($"当前目录 {Environment.CurrentDirectory}");
+        Trace.Log($"current directory {Environment.CurrentDirectory}");
 
         var project = ModProject.TryFind(Environment.CurrentDirectory);
         if (project is null)
             return items;
 
         var root = Path.GetDirectoryName(project.ManifestPath)!;
-        Trace.Log($"项目根 {root}");
+        Trace.Log($"project root {root}");
 
         var usage = ApiUsage.Scan(root, catalog);
 

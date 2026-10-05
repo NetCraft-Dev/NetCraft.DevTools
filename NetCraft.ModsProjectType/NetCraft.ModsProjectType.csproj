@@ -10,7 +10,7 @@
   <PropertyGroup>
     <PackageType>Template</PackageType>
     <PackageId>NetCraft.ModsProjectType</PackageId>
-    <Description>NetCraft 模组项目模板 用 dotnet new ncm 创建</Description>
+    <Description>NetCraft mod project template, create with dotnet new ncm</Description>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <TargetFramework>net10.0</TargetFramework>
     <IncludeBuildOutput>false</IncludeBuildOutput>
@@ -45,13 +45,13 @@
       <NetCraftLibOutput Include="$(MSBuildThisFileDirectory)content\ncm\libs" />
     </ItemGroup>
     <Error Condition="'@(NetCraftLibSource)' == ''"
-           Text="没找到 NC 引用程序集 检查 NetCraftRuntimeDir 指向的目录 $(NetCraftRuntimeDir)" />
+           Text="No NetCraft reference assemblies found; check the directory NetCraftRuntimeDir points to: $(NetCraftRuntimeDir)" />
     <MakeDir Directories="@(NetCraftLibOutput)" />
     <Copy SourceFiles="@(NetCraftLibSource)" DestinationFolder="@(NetCraftLibOutput)" SkipUnchangedFiles="true" />
     <ItemGroup>
       <None Include="$(MSBuildThisFileDirectory)content\ncm\libs\*.dll" Pack="true" PackagePath="content\ncm\libs\" />
     </ItemGroup>
-    <Message Importance="high" Text="已同步 NC 引用程序集 @(NetCraftLibSource->Count()) 个 → content\ncm\libs" />
+    <Message Importance="high" Text="Synced @(NetCraftLibSource->Count()) NetCraft reference assemblies -> content\ncm\libs" />
   </Target>
 
 </Project>

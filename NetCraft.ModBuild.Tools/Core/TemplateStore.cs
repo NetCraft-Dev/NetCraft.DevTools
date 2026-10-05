@@ -13,7 +13,7 @@ public static class TemplateStore
     //CatalogUrl 清单的引导地址 只有本地还没有清单时才走它
     //清单里的 base 是示例文件的基准 与这里不是一回事
     private const string CatalogUrl =
-        "https://raw.githubusercontent.com/XSY-HYH/NetCraftTemplate/refs/heads/main/NetCraftTemplate.yaml";
+        "https://raw.githubusercontent.com/NetCraft-Dev/NetCraftTemplate/refs/heads/main/NetCraftTemplate.yaml";
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(30) };
 
@@ -41,7 +41,7 @@ public static class TemplateStore
         }
         else
         {
-            Trace.Log($"清单缓存命中 {CatalogPath}");
+            Trace.Log($"catalog cache hit {CatalogPath}");
         }
 
         return TemplateCatalog.Read(CatalogPath);

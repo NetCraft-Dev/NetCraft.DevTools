@@ -83,7 +83,7 @@ internal static class UpdateTool
         }
         catch (Exception exception)
         {
-            Trace.Log($"读版本清单失败 {exception.Message}");
+            Trace.Log($"failed to read the version list: {exception.Message}");
             return null;
         }
     }
@@ -108,7 +108,7 @@ internal static class UpdateTool
         if (!windows)
             File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
 
-        Trace.Log($"更新脚本写到 {path}");
+        Trace.Log($"update script written to {path}");
         return path;
     }
 
@@ -121,6 +121,8 @@ internal static class UpdateTool
             FileName = windows ? "cmd.exe" : "/bin/sh",
             UseShellExecute = false,
         };
+        //ncm 的输出统一走英文 子进程别跟着系统语言变
+        startInfo.Environment["DOTNET_CLI_UI_LANGUAGE"] = "en";
 
         if (windows)
             startInfo.ArgumentList.Add("/c");

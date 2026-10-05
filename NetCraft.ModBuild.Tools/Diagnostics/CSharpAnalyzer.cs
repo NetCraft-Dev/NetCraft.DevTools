@@ -35,7 +35,7 @@ public static class CSharpAnalyzer
         var files = SourceFiles.Enumerate(root).ToList();
         if (files.Count == 0)
         {
-            Trace.Log("没有源码文件 跳过 Roslyn 检查");
+            Trace.Log("no source file, skipping the Roslyn check");
             return;
         }
 
@@ -54,7 +54,7 @@ public static class CSharpAnalyzer
             }
             catch (IOException e)
             {
-                Trace.Log($"读不出 {file} {e.Message}");
+                Trace.Log($"cannot read {file}: {e.Message}");
                 continue;
             }
 
@@ -99,7 +99,7 @@ public static class CSharpAnalyzer
             bag.Add(new Diagnostic(
                 DiagnosticSeverity.Error,
                 diagnostic.Id,
-                diagnostic.GetMessage(CultureInfo.CurrentCulture),
+                diagnostic.GetMessage(CultureInfo.InvariantCulture),
                 Path.GetRelativePath(root, span.Path).Replace('\\', '/'),
                 line,
                 span.StartLinePosition.Character + 1,
@@ -112,7 +112,7 @@ public static class CSharpAnalyzer
             reported++;
         }
 
-        Trace.Log($"Roslyn 报了 {reported} 条错误");
+        Trace.Log($"Roslyn reported {reported} error(s)");
     }
 
     //SuggestFor 给一条编译错误算一条能照着改的建议 算不出返回 null
@@ -230,11 +230,11 @@ public static class CSharpAnalyzer
             }
             catch (Exception e)
             {
-                Trace.Log($"引用加载失败 {path} {e.GetType().Name}");
+                Trace.Log($"failed to load reference {path}: {e.GetType().Name}");
             }
         }
 
-        Trace.Log($"Roslyn 引用 {references.Count} 个程序集");
+        Trace.Log($"Roslyn loaded {references.Count} reference(s)");
         return references;
     }
 

@@ -108,6 +108,8 @@ internal static class BuildTool
         {
             WorkingDirectory = root,
         };
+        //ncm 的输出统一走英文 子进程别跟着系统语言变
+        startInfo.Environment["DOTNET_CLI_UI_LANGUAGE"] = "en";
         startInfo.ArgumentList.Add("build");
         startInfo.ArgumentList.Add("--configuration");
         startInfo.ArgumentList.Add(configuration);

@@ -61,14 +61,14 @@ public sealed class ApiUsage
         var usage = new ApiUsage();
         if (catalog is null)
         {
-            Trace.Log("清单没有加载 不扫描源码");
+            Trace.Log("catalog is not loaded, skipping the source scan");
             return usage;
         }
 
         var pattern = BuildPattern(catalog.Grade);
         if (pattern is null)
         {
-            Trace.Log("grade 规则为空 不扫描源码");
+            Trace.Log("grade rule is empty, skipping the source scan");
             return usage;
         }
 
@@ -81,7 +81,7 @@ public sealed class ApiUsage
 
         var knownTypes = members.Keys.ToList();
         var files = SourceFiles.Enumerate(root).ToList();
-        Trace.Log($"扫到 {files.Count} 个源码文件 根目录 {root}");
+        Trace.Log($"scanned {files.Count} source file(s) under {root}");
 
         foreach (var file in files)
         {
@@ -92,7 +92,7 @@ public sealed class ApiUsage
             }
             catch (IOException e)
             {
-                Trace.Log($"读不出 {file} {e.Message}");
+                Trace.Log($"cannot read {file}: {e.Message}");
                 continue;
             }
 
