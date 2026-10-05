@@ -15,44 +15,87 @@ internal static class InitTool
     public static void Register()
         => ToolRegistry.Register("init", "Create a new NetCraft mod project in a subdirectory", Run);
 
-    //Run 收集内容再落地 当前不在空目录时先警告
+    //Run 收集内容再落地
+    //不带参数走表单问答 带参数就按位置直接取值 顺序与表单一致 一个都不问
     private static int Run(string[] args)
     {
         var directory = Environment.CurrentDirectory;
+        var fields = BuildFields(directory);
 
-        if (HasExistingProject(directory) && !Prompt.Confirm(
-                $"This directory already contains a csproj or {ModProject.ManifestName} file. Creating here may affect the existing project. Continue?",
-                defaultYes: false, warn: true))
-            return 0;
-
-        var fields = new List<FormField>
+        if (args.Length > 0)
         {
-            //只有名字必填 其余都能留空或由模板与缺省约定兜底
-            //名字每敲一键就判一回 同名目录已经在了是红 夹了不能进目录名的字符是黄
-            new("name", "Mod name", required: true)
+            if (args.Length > fields.Count)
             {
-                Validate = value => ValidateName(directory, value),
-            },
-            new("id", "Mod id"),
-            new("description", "Description"),
-            new("authors", "Authors"),
-            new("homepage", "Homepage"),
-            new("sources", "Sources"),
-            new("license", "License"),
-        };
+                Console.WriteLine($"init takes at most {fields.Count} arguments: {string.Join(' ', fields.Select(field => field.Key))}");
+                return 1;
+            }
 
-        if (!Prompt.Form(fields))
+            //这条路是给脚本用的 没人看得到确认提示 已经身在项目里就直接失败 免得误伤
+            if (HasExistingProject(directory))
+            {
+                Console.WriteLine($"This directory already contains a csproj or {ModProject.ManifestName} file");
+                return 1;
+            }
+
+            for (var index = 0; index < args.Length; index++)
+                fields[index].Value = args[index];
+        }
+        else
+        {
+            if (HasExistingProject(directory) && !Prompt.Confirm(
+                    $"This directory already contains a csproj or {ModProject.ManifestName} file. Creating here may affect the existing project. Continue?",
+                    defaultYes: false, warn: true))
+                return 0;
+
+            if (!Prompt.Form(fields))
+            {
+                Console.WriteLine("A mod name is required");
+                return 1;
+            }
+        }
+
+        return Submit(directory, fields);
+    }
+
+    //BuildFields 表单字段 顺序就是位置参数的顺序 改一处两边同时生效
+    private static List<FormField> BuildFields(string directory) => new()
+    {
+        //只有名字必填 其余都能留空或由模板与缺省约定兜底
+        //名字每敲一键就判一回 同名目录已经在了是红 夹了不能进目录名的字符是黄
+        new("name", "Mod name", required: true)
+        {
+            Validate = value => ValidateName(directory, value),
+        },
+        new("id", "Mod id"),
+        new("description", "Description"),
+        new("authors", "Authors"),
+        new("homepage", "Homepage"),
+        new("sources", "Sources"),
+        new("license", "License"),
+    };
+
+    //Submit 两条入口共用的收尾 名字与目录先验一遍再落地
+    private static int Submit(string directory, List<FormField> fields)
+    {
+        string Value(string key) => fields.First(field => field.Key == key).Value.Trim();
+
+        var name = Value("name");
+        if (string.IsNullOrWhiteSpace(name))
         {
             Console.WriteLine("A mod name is required");
             return 1;
         }
 
-        string Value(string key) => fields.First(field => field.Key == key).Value.Trim();
-
-        var name = Value("name");
         if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
         {
             Console.WriteLine("The mod name contains characters that cannot be used in a directory name");
+            return 1;
+        }
+
+        //交互那条路靠表单标红拦着 带参数这条路没人看着 就把关搬到这里
+        if (Directory.Exists(Path.Combine(directory, name)))
+        {
+            Console.WriteLine($"A directory named {name} already exists");
             return 1;
         }
 

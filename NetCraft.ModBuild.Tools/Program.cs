@@ -16,6 +16,7 @@ public static class Program
         TemplateTool.Register();
         BuildTool.Register();
         AsmTool.Register();
+        UpdateTool.Register();
 
         if (args.Length == 0 || args[0] is "help" or "--help" or "-h")
         {

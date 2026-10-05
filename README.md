@@ -29,12 +29,16 @@ The install scripts set up everything a mod author needs — the .NET 10 SDK, th
 Packages come from nuget.org. Then, from a mod project:
 
 ```powershell
-ncm init                        # create a new mod project
+ncm init                        # create a mod project with prompts
+ncm init <name> <id> <description> <authors> <homepage> <sources> <license>
+                                # same fields in the same order, no prompts
+                                # trailing ones may be omitted, empty string skips one
 ncm template example <api>      # write an example for an API type
 ncm template tui                # terminal panel: grade the api usage of the current project
 ncm template gui                # the same catalog and grading in a window
 ncm build                       # diagnose, then build
 ncm asm <assembly>              # inspect any .NET assembly
+ncm update                      # check nuget.org, then update ncm itself
 
 dotnet new ncm -n MyMod         # or create from the template directly
 ```
