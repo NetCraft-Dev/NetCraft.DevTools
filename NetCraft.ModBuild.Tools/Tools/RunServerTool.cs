@@ -3,14 +3,18 @@ using NetCraft.ModBuild.Core;
 namespace NetCraft.ModBuild.Tools;
 
 //RunServerTool 在当前目录把 NetCraft 服务端跑起来
-//只认模组项目 运行时文件从程序根目录的 Server 取 存档与日志落在当前目录的 run 下
+//运行时文件从程序根目录的 Server 取 存档与日志落在当前目录的 run 下
 //开服前把当前模组备进 run/mods 后面的参数一个不解析 原样交给服务端
 internal static class RunServerTool
 {
+    //RefreshOption 按远端清单刷运行时文件 带上它就不要求模组项目也不构建
+    private const string RefreshOption = "--refresh";
+
     //Register 把本工具登记进注册表 名字说明与参数都写在这一行
     public static void Register()
         => ToolRegistry.Register("runserver", "Build the current mod and run the NetCraft server", Run,
         [
+            new("--refresh", "Refresh the server cache against the remote index, no ncmod.json and no build needed"),
             new("[server args]", "Everything after runserver is passed to the server unchanged"),
         ]);
 
@@ -18,6 +22,10 @@ internal static class RunServerTool
     //前置步骤任何一步没过都到不了启动那一步
     private static int Run(string[] args)
     {
+        //--refresh 只管刷运行时文件 当前目录是不是模组项目都无所谓
+        if (Array.IndexOf(args, RefreshOption) >= 0)
+            return ServerStore.Refresh() ? ServerLauncher.Launch(WithoutRefresh(args)) : 1;
+
         if (!ServerStore.Ensure())
             return 1;
 
@@ -36,4 +44,8 @@ internal static class RunServerTool
             ? ServerLauncher.Launch(args)
             : 1;
     }
+
+    //WithoutRefresh --refresh 是 ncm 自己的开关 不往服务端传
+    private static string[] WithoutRefresh(string[] args)
+        => args.Where(arg => arg != RefreshOption).ToArray();
 }
