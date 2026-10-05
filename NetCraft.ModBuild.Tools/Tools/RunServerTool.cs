@@ -3,7 +3,7 @@ using NetCraft.ModBuild.Core;
 namespace NetCraft.ModBuild.Tools;
 
 //RunServerTool 在当前目录把 NetCraft 服务端跑起来
-//运行时文件从程序根目录的 Server 取 存档与日志落在当前目录的 run 下
+//只认模组项目 运行时文件从程序根目录的 Server 取 存档与日志落在当前目录的 run 下
 //开服前把当前模组备进 run/mods 后面的参数一个不解析 原样交给服务端
 internal static class RunServerTool
 {
@@ -15,18 +15,24 @@ internal static class RunServerTool
         ]);
 
     //Run 备齐运行时文件 备好模组 再交给启动器
+    //前置步骤任何一步没过都到不了启动那一步
     private static int Run(string[] args)
     {
         if (!ServerStore.Ensure())
             return 1;
 
-        //没有清单时把当前目录当根 与 build 那边同一套判定
+        //构建与部署都按项目根来 不在模组项目里就没什么可开的
         var project = ModProject.TryFind(Environment.CurrentDirectory);
-        var root = project is null
-            ? Environment.CurrentDirectory
-            : Path.GetDirectoryName(project.ManifestPath)!;
+        if (project is null)
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"error: no {ModProject.ManifestName} in this directory or any parent");
+            Console.ResetColor();
+            return 1;
+        }
 
-        return ModStaging.Stage(root, project, ServerLauncher.RunDirectory)
+        var root = Path.GetDirectoryName(project.ManifestPath)!;
+        return ModStaging.Stage(root, ServerLauncher.RunDirectory)
             ? ServerLauncher.Launch(args)
             : 1;
     }

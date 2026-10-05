@@ -14,19 +14,13 @@ internal static class ModStaging
     private const string ModsDirectoryName = "mods";
 
     //Stage 备好 mods 目录 返回是否可以继续启动
-    //project 为空说明当前目录不是模组项目 那就只搬 modapi 不构建
-    public static bool Stage(string projectRoot, ModProject? project, string runDirectory)
+    //任何一步没过都返回 false 没备好模组就不该把服务端拉起来
+    public static bool Stage(string projectRoot, string runDirectory)
     {
         var mods = Path.Combine(runDirectory, ModsDirectoryName);
         Directory.CreateDirectory(mods);
 
         StageModApi(projectRoot, mods);
-
-        if (project is null)
-        {
-            Trace.Log($"no {ModProject.ManifestName} under {projectRoot}, build skipped");
-            return true;
-        }
 
         //诊断加构建 产物收进项目根的 Build 再整份搬进 mods
         if (BuildTool.Run([]) != 0)
