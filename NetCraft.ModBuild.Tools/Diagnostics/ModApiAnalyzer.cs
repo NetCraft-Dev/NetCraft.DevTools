@@ -30,6 +30,33 @@ public static class ModApiAnalyzer
             covered.Add(item.Type);
             covered.Add(item.Member);
 
+            var fixes = new List<Suggestion>();
+            if (location is not null)
+            {
+                //最近的一个候选做成能直接照着改的建议
+                //类型未知就换类型那段 成员未知就换成员那段
+                var first = item.Candidates.FirstOrDefault();
+                if (first is not null)
+                {
+                    var replacement = unknown ? first : LastSegment(first);
+                    var start = Math.Max(1, column) + (unknown ? 0 : item.Type.Length + 1);
+                    var length = unknown ? item.Type.Length : item.Member.Length;
+
+                    fixes.Add(Suggestion.Replace(
+                        $"did you mean `{replacement}`?",
+                        location.Line,
+                        start,
+                        length,
+                        replacement,
+                        Applicability.MaybeIncorrect));
+                }
+
+                //其余候选合成一条 没有标题之后得自带说明
+                var rest = item.Candidates.Skip(1).ToList();
+                if (rest.Count > 0)
+                    fixes.Add(Suggestion.Text($"other candidates: {string.Join(", ", rest)}"));
+            }
+
             bag.Add(new Diagnostic(
                 unknown ? DiagnosticSeverity.Error : DiagnosticSeverity.Warning,
                 unknown ? UnknownTypeCode : UnknownMemberCode,
@@ -44,10 +71,17 @@ public static class ModApiAnalyzer
                 unknown
                     ? "the name may be misspelled; the catalog is the authoritative api list"
                     : $"`{item.Member}` is not a member of {item.Type}",
-                unknown ? "Closest names in the catalog" : "Members this type actually has",
-                item.Candidates));
+                string.Empty,
+                fixes));
         }
 
         return covered;
+    }
+
+    //LastSegment 候选是 类型.成员 形式 取最后那段成员名
+    private static string LastSegment(string symbol)
+    {
+        var dot = symbol.LastIndexOf('.');
+        return dot >= 0 ? symbol[(dot + 1)..] : symbol;
     }
 }

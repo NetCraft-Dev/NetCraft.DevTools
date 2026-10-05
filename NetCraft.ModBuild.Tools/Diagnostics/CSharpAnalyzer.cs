@@ -1,7 +1,11 @@
 using System.Globalization;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Text;
 using NetCraft.ModBuild.Core;
+//Roslyn 的 Diagnostic 与本地同命名空间那个重名 起个别名区分
+using RoslynDiagnostic = Microsoft.CodeAnalysis.Diagnostic;
 
 namespace NetCraft.ModBuild.Diagnostics;
 
@@ -86,6 +90,12 @@ public static class CSharpAnalyzer
             if (identifier is not null && covered.Contains(identifier))
                 continue;
 
+            //先试能直接照着改的建议 命中了就不再堆通用话术
+            var suggestion = SuggestFor(compilation, diagnostic);
+            var fixes = suggestion is not null
+                ? new List<Suggestion> { suggestion }
+                : CompileAdvice.Text(diagnostic.Id).Select(Suggestion.Text).ToList();
+
             bag.Add(new Diagnostic(
                 DiagnosticSeverity.Error,
                 diagnostic.Id,
@@ -96,14 +106,97 @@ public static class CSharpAnalyzer
                 Math.Max(1, diagnostic.Location.SourceSpan.Length),
                 sourceLine,
                 string.Empty,
-                string.Empty,
-                Array.Empty<string>()));
+                diagnostic.Descriptor.HelpLinkUri,
+                fixes));
 
             reported++;
         }
 
         Trace.Log($"Roslyn 报了 {reported} 条错误");
     }
+
+    //SuggestFor 给一条编译错误算一条能照着改的建议 算不出返回 null
+    //只处理名字写错这两类 其余交给 CompileAdvice 的静态表兜底
+    private static Suggestion? SuggestFor(Compilation compilation, RoslynDiagnostic diagnostic)
+    {
+        var tree = diagnostic.Location.SourceTree;
+        if (tree is null)
+            return null;
+
+        var model = compilation.GetSemanticModel(tree);
+        var span = diagnostic.Location.SourceSpan;
+
+        return diagnostic.Id switch
+        {
+            "CS0103" or "CS0246" => SuggestName(model, diagnostic, span),
+            "CS0117" or "CS1061" => SuggestMember(model, diagnostic, span),
+            _ => null,
+        };
+    }
+
+    //SuggestName 名字找不到时在该处可见的符号里挑最像的那个
+    private static Suggestion? SuggestName(SemanticModel model, RoslynDiagnostic diagnostic, TextSpan span)
+    {
+        var written = TextOf(diagnostic, span);
+        if (string.IsNullOrEmpty(written))
+            return null;
+
+        var names = model.LookupSymbols(span.Start).Select(symbol => symbol.Name);
+        var candidate = Similarity.Closest(written, names);
+        if (candidate is null)
+            return null;
+
+        var start = diagnostic.Location.GetLineSpan().StartLinePosition;
+        return Suggestion.Replace(
+            $"did you mean `{candidate}`?",
+            start.Line + 1,
+            start.Character + 1,
+            span.Length,
+            candidate,
+            Applicability.MaybeIncorrect);
+    }
+
+    //SuggestMember 成员名对不上时从那个类型实际有的成员里挑最像的那个
+    private static Suggestion? SuggestMember(SemanticModel model, RoslynDiagnostic diagnostic, TextSpan span)
+    {
+        var root = diagnostic.Location.SourceTree?.GetRoot();
+        var node = root?.FindNode(span, getInnermostNodeForTie: true);
+        var access = node?.AncestorsAndSelf().OfType<MemberAccessExpressionSyntax>().FirstOrDefault();
+        if (access?.Name is not IdentifierNameSyntax name)
+            return null;
+
+        var type = model.GetTypeInfo(access.Expression).Type;
+        if (type is null)
+            return null;
+
+        var written = name.Identifier.Text;
+        var candidate = Similarity.Closest(written, MemberNames(type));
+        if (candidate is null)
+            return null;
+
+        var start = name.GetLocation().GetLineSpan().StartLinePosition;
+        return Suggestion.Replace(
+            $"did you mean `{candidate}`?",
+            start.Line + 1,
+            start.Character + 1,
+            written.Length,
+            candidate,
+            Applicability.MaybeIncorrect);
+    }
+
+    //MemberNames 一个类型连基类算上全部成员的名字
+    private static IEnumerable<string> MemberNames(ITypeSymbol type)
+    {
+        for (var current = type; current is not null; current = current.BaseType)
+        {
+            foreach (var member in current.GetMembers())
+                yield return member.Name;
+        }
+    }
+
+    //TextOf 取诊断指向的那段源码原文
+    private static string TextOf(RoslynDiagnostic diagnostic, TextSpan span)
+        => diagnostic.Location.SourceTree?.GetText().ToString(span) ?? string.Empty;
 
     //BuildReferences 编译引用 运行时平台程序集加项目 libs 下的 NC 程序集
     private static List<MetadataReference> BuildReferences(string root)

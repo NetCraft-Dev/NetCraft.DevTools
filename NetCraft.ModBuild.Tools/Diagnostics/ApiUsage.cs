@@ -170,7 +170,7 @@ public sealed class ApiUsage
             //成员动辄几十个 差太远的列出来只会添乱
             var limit = Math.Max(2, member.Length / 2);
             return table
-                .Select(name => (Name: name, Distance: Distance(member, name)))
+                .Select(name => (Name: name, Distance: Similarity.Distance(member, name)))
                 .Where(item => item.Distance <= limit)
                 .OrderBy(item => item.Distance)
                 .Take(MaxCandidates)
@@ -182,41 +182,12 @@ public sealed class ApiUsage
         {
             //类型总共没几条 全列出来 最像的排最前 用户扫一眼就知道能换成什么
             return knownTypes
-                .OrderBy(name => Distance(type, name))
+                .OrderBy(name => Similarity.Distance(type, name))
                 .Take(MaxCandidates)
                 .ToList();
         }
 
         return new List<string>();
-    }
-
-    //Distance 两个名字的编辑距离 用来挑最像的那个候选
-    private static int Distance(string a, string b)
-    {
-        if (a.Length == 0)
-            return b.Length;
-        if (b.Length == 0)
-            return a.Length;
-
-        var previous = new int[b.Length + 1];
-        var current = new int[b.Length + 1];
-        for (var column = 0; column <= b.Length; column++)
-            previous[column] = column;
-
-        for (var row = 1; row <= a.Length; row++)
-        {
-            current[0] = row;
-            for (var column = 1; column <= b.Length; column++)
-            {
-                var cost = char.ToLowerInvariant(a[row - 1]) == char.ToLowerInvariant(b[column - 1]) ? 0 : 1;
-                current[column] = Math.Min(
-                    Math.Min(current[column - 1] + 1, previous[column] + 1),
-                    previous[column - 1] + cost);
-            }
-            (previous, current) = (current, previous);
-        }
-
-        return previous[b.Length];
     }
 
     //LineOf 字符下标落在第几行 行号从 1 起
