@@ -31,6 +31,8 @@ Packages come from nuget.org. Then, from a mod project:
 ```powershell
 ncm init                        # create a new mod project
 ncm template example <api>      # write an example for an API type
+ncm template tui                # terminal panel: grade the api usage of the current project
+ncm template gui                # the same catalog and grading in a window
 ncm build                       # diagnose, then build
 ncm asm <assembly>              # inspect any .NET assembly
 
@@ -53,7 +55,7 @@ dotnet new install ./nupkg/NetCraft.ModsProjectType.0.1.0.nupkg
 `reference/` holds the kernel assemblies that ship inside the project template, so new projects can compile without the kernel source. Refresh it from a kernel build output plus a ModApi build:
 
 ```powershell
-./tools/sync-reference.ps1 -KernelOutput <NetCraft.Server.Exe bin/Release/net10.0> -ModApiDll <NetCraft.ModApi.dll>
+./tools/sync-reference.ps1 -KernelOutput <NetCraft.ServerExe bin/Release/net10.0> -ModApiDll <NetCraft.ModApi.dll>
 ```
 
 ## License

@@ -1,6 +1,6 @@
 # 从一次内核构建的输出刷新 reference/ 里的引用程序集
 # 内核接口变动之后跑一次 让项目模板发出去的 libs 跟上
-# 用法: ./tools/sync-reference.ps1 -KernelOutput <NetCraft.Server.Exe 的 bin/Release/net10.0> -ModApiDll <NetCraft.ModApi.dll>
+# 用法: ./tools/sync-reference.ps1 -KernelOutput <NetCraft.ServerExe 的 bin/Release/net10.0> -ModApiDll <NetCraft.ModApi.dll>
 param(
     [Parameter(Mandatory = $true)]
     [string]$KernelOutput,

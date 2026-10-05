@@ -1,5 +1,6 @@
 using NetCraft.ModBuild.Core;
 using NetCraft.ModBuild.Gui;
+using NetCraft.ModBuild.Tui;
 
 namespace NetCraft.ModBuild.Tools;
 
@@ -47,7 +48,8 @@ internal static class TemplateTool
         {
             "view" => View(remaining[1..]),
             "example" => Example(remaining[1..]),
-            "ui" => Ui(),
+            "gui" => Gui(),
+            "tui" => Tui(),
             _ => Unknown(remaining[0]),
         };
     }
@@ -106,7 +108,7 @@ internal static class TemplateTool
         return 0;
     }
 
-    //Example 把模板文件拉到当前目录 缓存命中就不联网
+    //Example 按 id 找到条目再把模板文件拉到当前目录
     private static int Example(string[] args)
     {
         if (args.Length == 0)
@@ -128,6 +130,13 @@ internal static class TemplateTool
             return 1;
         }
 
+        return PullExample(catalog, entry);
+    }
+
+    //PullExample 把一个条目的示例拉到当前目录 供 example 子命令与 tui 共用
+    //缓存命中就不联网 目标已存在时问一句
+    internal static int PullExample(TemplateCatalog catalog, TemplateEntry entry)
+    {
         if (string.IsNullOrWhiteSpace(entry.Template))
         {
             Console.WriteLine($"{entry.Id} does not declare a template file");
@@ -175,13 +184,16 @@ internal static class TemplateTool
             .Replace(ClassToken, className);
     }
 
-    //Ui 打开图形面板 清单取不到也照常开 窗口里会说明原因
-    private static int Ui()
+    //Gui 打开图形面板 清单取不到也照常开 窗口里会说明原因
+    private static int Gui()
     {
         var catalog = TemplateStore.LoadCatalog();
         TemplateWindow.Show(catalog);
         return 0;
     }
+
+    //Tui 打开终端面板 侧重扫项目里的 api 用法
+    private static int Tui() => UsageTui.Run();
 
     //Unknown 子命令没认出来
     private static int Unknown(string command)
@@ -207,7 +219,8 @@ internal static class TemplateTool
         Console.WriteLine("Commands:");
         Console.WriteLine("  view [pattern]     List template entries, ? and * work as wildcards");
         Console.WriteLine("  example <api id>   Pull the example file of an entry into the current directory");
-        Console.WriteLine("  ui                 Open the template panel, grading the api usage of the open project");
+        Console.WriteLine("  gui                Open the template panel in a window");
+        Console.WriteLine("  tui                Open the terminal panel, grading the api usage of the project");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --refresh          Clear the local cache first and pull everything again");
