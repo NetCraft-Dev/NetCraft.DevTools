@@ -82,17 +82,21 @@ internal static class ServerLauncher
         log.GetMethod("SetVerbose")!.Invoke(null, new object?[] { true });
     }
 
-    //SyncKernel 把 Server 里的内核程序集同步进运行目录
-    //同名同大小就跳过 之后每次开服这一趟几乎不花时间
-    //加载器不进内核目录 它跟主库一样是常驻的那两个 服务端发布版也把它留在根上
-    private static void SyncKernel(string source, string destination)
+    //SyncKernel 把缓存里的内核程序集同步进目标目录
+    //同名同大小就跳过 之后每次这一趟几乎不花时间
+    //includeModLoader 决定要不要带上加载器 运行目录那边不用它 主库常驻在根上
+    //项目里的编译引用要它 模组接口就在那个程序集里
+    //根程序集 NetCraft.dll 里也有模组要用的类型 编译引用同样要它
+    //运行目录那边不能放 主库已常驻在根上 再来一份会被内核加载器当成两个
+    internal static void SyncKernel(string source, string destination, bool includeModLoader = false)
     {
         Directory.CreateDirectory(destination);
 
+        var pattern = includeModLoader ? "NetCraft*.dll" : "NetCraft.*.dll";
         var copied = 0;
-        foreach (var path in Directory.EnumerateFiles(source, "NetCraft.*.dll"))
+        foreach (var path in Directory.EnumerateFiles(source, pattern))
         {
-            if (Path.GetFileNameWithoutExtension(path) == ModLoaderAssemblyName)
+            if (!includeModLoader && Path.GetFileNameWithoutExtension(path) == ModLoaderAssemblyName)
                 continue;
 
             var target = Path.Combine(destination, Path.GetFileName(path));
@@ -103,6 +107,7 @@ internal static class ServerLauncher
             File.Copy(path, target, overwrite: true);
             copied++;
         }
+
         Trace.Log($"kernel synced {copied} file(s) to {destination}");
     }
 

@@ -22,9 +22,22 @@ internal static class RunServerTool
     //前置步骤任何一步没过都到不了启动那一步
     private static int Run(string[] args)
     {
+        //配置是可选的 不在模组项目里也要能把运行时文件刷起来
+        //缓存位置 内核来源 jar 版本都从它来 读不动就说一声接着走默认
+        var config = NcProject.TryFind(Environment.CurrentDirectory, out var configError);
+        if (!string.IsNullOrEmpty(configError))
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine($"warning: {configError}");
+            Console.ResetColor();
+        }
+
+        ServerStore.Configure(config);
+        ClientStore.Configure(config);
+
         //--refresh 只管刷运行时文件 当前目录是不是模组项目都无所谓
         if (Array.IndexOf(args, RefreshOption) >= 0)
-            return ServerStore.Refresh() ? ServerLauncher.Launch(WithoutRefresh(args)) : 1;
+            return ServerStore.Refresh() ? ServerLauncher.Launch(Arguments(config, WithoutRefresh(args))) : 1;
 
         if (!ServerStore.Ensure())
             return 1;
@@ -51,7 +64,20 @@ internal static class RunServerTool
         if (!ModStaging.Stage(root, ServerLauncher.RunDirectory))
             return 1;
 
-        return ServerLauncher.Launch(firstRun ? WithJarPath(args, jar) : args);
+        var arguments = Arguments(config, args);
+        return ServerLauncher.Launch(firstRun ? WithJarPath(arguments, jar) : arguments);
+    }
+
+    //Arguments 把配置里的自带参数与调试开关并到用户参数前面
+    //用户参数在后 同名的能压过配置里那份
+    private static string[] Arguments(NcProject? config, string[] args)
+    {
+        var combined = new List<string>(ArgumentLine.Split(config?.Server.Args ?? string.Empty));
+        if (config?.Server.Debug == true && !combined.Contains("--debug"))
+            combined.Add("--debug");
+
+        combined.AddRange(args);
+        return combined.ToArray();
     }
 
     //WithJarPath 首次开服把客户端 jar 指给服务端

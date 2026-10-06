@@ -4,9 +4,9 @@
     NetCraft mod project.
     The build output is a class library with ncmod.json embedded; drop it into the mods/ folder
     of an NC runtime directory and it loads.
-    libs/ holds the NC assemblies shipped with the template. They are compile-time references
-    only; at runtime the NC process provides them.
-    Swap the whole libs/ folder when moving to another NC version.
+    Build/kernel holds the NC assemblies shipped with the template. They are compile-time
+    references only; at runtime the NC process provides them.
+    Swap the whole Build/kernel folder when moving to another NC version.
   -->
 
   <PropertyGroup>
@@ -16,12 +16,13 @@
   </PropertyGroup>
 
   <!--
-    Reference the NC assemblies under libs/.
-    The wildcard saves listing them one by one; a new kernel sub-library only means swapping libs/.
+    Reference the NC assemblies under Build/kernel.
+    The wildcard saves listing them one by one; a new kernel sub-library only means swapping
+    Build/kernel.
     Private is off so they are not copied to the output directory - a mod ships only its own dll.
   -->
   <ItemGroup>
-    <Reference Include="$(MSBuildThisFileDirectory)libs\*.dll" Private="false" />
+    <Reference Include="$(MSBuildThisFileDirectory)Build\kernel\*.dll" Private="false" />
   </ItemGroup>
 
   <!--The manifest must be embedded; the scanner only recognises the resource name ncmod.json-->
@@ -39,7 +40,7 @@
     Anything added with "dotnet add package" lands in RuntimeCopyLocalItems and is embedded here
     as is. When the loader cannot resolve an assembly it falls back to the .dll resources embedded
     in the mod, so no manifest field has to be maintained.
-    NC's own assemblies live in libs/ with Private off, so they never show up in this list.
+    NC's own assemblies live in Build/kernel with Private off, so they never show up in this list.
     The .dll filter uses a transform rather than a Condition - the template engine evaluates a
     Condition containing %(...) at template time, where the metadata is unavailable, and drops
     the whole line.

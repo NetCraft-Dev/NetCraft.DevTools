@@ -36,10 +36,15 @@ ncm init <name> <id> <description> <authors> <homepage> <sources> <license>
 ncm template example <api>      # write an example for an API type
 ncm template tui                # terminal panel: grade the api usage of the current project
 ncm template gui                # the same catalog and grading in a window
+ncm add nuget <id> [version]    # declare a package dependency in the .ncproj
+ncm remove nuget <id>           # drop a package dependency, reporting leftover references
+ncm restore                     # resolve the declared packages into Build/packages/
 ncm build                       # diagnose, then build
+ncm clean [--all]               # drop the build cache, --all drops the downloads as well
 ncm runserver                   # build the mod and run the server
 ncm asm <assembly>              # inspect any .NET assembly
 ncm icon                        # write a white background mod icon
+ncm upgrade                     # convert a csproj project to a .ncproj one
 ncm update                      # check nuget.org, then update ncm itself
 
 dotnet new ncm -n MyMod         # or create from the template directly
@@ -75,9 +80,35 @@ Browse and pull mod templates.
 | `tui` | Open the terminal panel, grading the api usage of the project |
 | `--refresh` | Clear the local cache first and pull everything again |
 
+### `add`
+
+Declare a dependency in the project config. The change is written back to the `.ncproj`.
+
+| Parameter | Description |
+|---|---|
+| `nuget <id> [version]` | Add a nuget package, the version takes the same syntax as `dotnet add package` |
+| `mod <id> [version]` | Add a mod dependency, not implemented yet |
+
+### `remove`
+
+Drop a dependency from the project config and clear its copy under `Build`. The project is then assembled with Roslyn and every symbol is resolved, so a source file still using a type from that package is reported. The check goes by the assembly a symbol actually comes from rather than by name, so a type of the same name declared in the project itself is never mistaken for one of the package.
+
+| Parameter | Description |
+|---|---|
+| `nuget <id>` | Remove a nuget package |
+| `mod <id>` | Remove a mod dependency, not implemented yet |
+
+### `restore`
+
+Resolve the `<Packages>` declared in the project config and copy their assemblies and build files into the project, under `Build/packages` and `Build/targets`. `build` runs the same step on its own, so this is only needed when the restored files are wanted without a build.
+
+| Parameter | Description |
+|---|---|
+| `[directory]` | Where to restore, relative to the project root, defaults to `Build/packages` |
+
 ### `build`
 
-Diagnose and build the mod project in the current directory.
+Diagnose and build the mod project in the current directory. The kernel reference assemblies under `Build/kernel` and the declared packages are laid down first, whatever is already there is kept, and only the missing files are fetched. Then the project is compiled, the build targets the packages ship are run, and the result is deployed.
 
 | Parameter | Description |
 |---|---|
@@ -85,6 +116,14 @@ Diagnose and build the mod project in the current directory.
 | `--no-check` | Skip the api and syntax checks and run `dotnet build` directly |
 | `--check-only` | Run the api and syntax checks only, build nothing |
 | `--no-manifest` | Skip the `ncmod.json` lookup, treat the current directory as a plain C# project (must contain a csproj) |
+
+### `clean`
+
+Remove the build cache of the current project, which is `Build` in it. The next build lays it down again.
+
+| Parameter | Description |
+|---|---|
+| `--all` | Also remove the downloaded package cache and the kernel cache |
 
 ### `runserver`
 
@@ -116,9 +155,67 @@ Generate a white background mod icon with the mod name.
 |---|---|
 | `-f`, `--force` | Overwrite an existing icon without asking |
 
+### `upgrade`
+
+Convert a csproj based mod project to a `.ncproj` one. What ncm does not understand is listed so it can be handled by hand; the original csproj is renamed to `.bak`.
+
+| Parameter | Description |
+|---|---|
+| `[file]` | The csproj to convert, defaults to the only csproj in the current directory |
+
 ### `update`
 
 Check nuget.org and update ncm to the latest version. Takes no parameters.
+
+## Project config
+
+A mod project can carry a `.ncproj` file next to `ncmod.json`. It holds development-time settings only — how the project is built, run and packaged — and is never embedded into the mod, unlike `ncmod.json`, which the loader reads at runtime.
+
+With a `.ncproj` present ncm compiles the project with Roslyn directly; without one it falls back to `dotnet build`. Tasks declared here run as `ncm <task>`.
+
+Everything the build needs at build time lives under `Build`: `Build/kernel` holds the NC reference assemblies synced from the kernel cache, `Build/packages` the packages pulled by the restore, `Build/targets` the props and targets those packages ship, `Build/obj` the intermediate directory the build targets run in, and `Build/out` the build output.
+
+```xml
+<ncproj version="1">
+  <Check LangVersion="latest" />
+  <Build AssemblyName="Demo" Configuration="Release" Output="Build/out"
+         Nullable="true" ImplicitUsings="true" DefineConstants="DEBUG" ExtraArgs="" />
+  <Packages>
+    <Package Id="Newtonsoft.Json" Version="13.0.3" />
+  </Packages>
+  <Server Cache="cache" Args="--nogui" Debug="false" />
+  <Client Version="26.2" Jar="https://example.com/client.jar" Args="--username dev" />
+  <Sources Url="https://example.com/kernel/" Index="index.txt" Format="sha256-lines" />
+  <Template Url="https://example.com/NetCraftTemplate.yaml" Base="https://example.com/NetCraftTemplate" />
+  <InternalsVisibleTo>
+    <Assembly Name="NetCraft.Test" />
+  </InternalsVisibleTo>
+  <AvaloniaResources>
+    <Resource Include="Gui/Assets/**" />
+  </AvaloniaResources>
+  <Deploy To="run/mods;../host/mods" />
+  <Tasks>
+    <Task Name="release" Description="build and pack" Depends="check">
+      <Exec>ncm build</Exec>
+    </Task>
+  </Tasks>
+</ncproj>
+```
+
+| Element | Attributes |
+|---|---|
+| `Check` | `LangVersion` — the C# version used for the api and syntax checks |
+| `Build` | `AssemblyName`, `Configuration`, `Output`, `Nullable`, `ImplicitUsings`, `DefineConstants`, `ExtraArgs` |
+| `Packages` | one `Package` per dependency with `Id` and an optional `Version`, the version range syntax matches NuGet |
+| `Server` | `Cache` — where the runtime files are cached, `Args` — extra server arguments, `Debug` — always run in debug mode |
+| `Client` | `Version` — the client jar to fetch, `Jar` — a direct download url instead of the version manifest, `Args` — extra client arguments |
+| `Sources` | `Url` — where the kernel is fetched from, used as it stands so a mirror prefix can be glued in front, `Index` — the manifest file name, `Format` — `sha256-lines`, `plain` or `regex`, `Pattern` — the two capture groups, hash then path, of the regex form |
+| `Template` | `Url` — where the template catalog is fetched from, `Base` — the base the example files are pulled from, replacing the one written in the catalog; either may be left out, and both take a mirror prefix the same way `Sources` does |
+| `InternalsVisibleTo` | one `Assembly` per friend assembly with `Name`, emitted as `[assembly: InternalsVisibleTo]` |
+| `AvaloniaResources` | one `Resource` per pattern with `Include`, packed into the `!AvaloniaResources` resource the Avalonia asset loader reads; every `*.axaml` of the project is picked up as well, so only plain assets have to be listed |
+| `Deploy` | `To` — semicolon separated directories the built dll is copied into right after a successful build |
+| `Tasks` | one `Task` per task with `Name`, `Description`, `Depends` and `Override`, holding `Exec` steps |
+| root | `Override` — the default for tasks that do not carry their own |
 
 ## License
 

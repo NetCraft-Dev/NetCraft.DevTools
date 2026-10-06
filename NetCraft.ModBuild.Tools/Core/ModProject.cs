@@ -13,10 +13,13 @@ public sealed class ModProject
     //DefaultIconName 清单没写 icon 时约定的图标文件名
     public const string DefaultIconName = "icon.png";
 
-    private ModProject(string manifestPath, string displayName, string iconPath, string namespaceName)
+    private ModProject(string manifestPath, string displayName, string id, string version, string iconPath,
+        string namespaceName)
     {
         ManifestPath = manifestPath;
         DisplayName = displayName;
+        Id = id;
+        Version = version;
         IconPath = iconPath;
         Namespace = namespaceName;
     }
@@ -26,6 +29,12 @@ public sealed class ModProject
 
     //DisplayName 图标上写的名字
     public string DisplayName { get; }
+
+    //Id 清单里的 mod id 任务插值里当 $(ModId) 用
+    public string Id { get; }
+
+    //Version 清单里的版本号 任务插值里当 $(ModVersion) 用
+    public string Version { get; }
 
     //IconPath 图标文件的完整路径 取自清单的 icon 字段
     public string IconPath { get; }
@@ -58,6 +67,7 @@ public sealed class ModProject
     {
         string? name;
         string? id;
+        string? version;
         string? icon;
         string? entry;
         try
@@ -66,6 +76,7 @@ public sealed class ModProject
             var root = document.RootElement;
             name = GetString(root, "name");
             id = GetString(root, "id");
+            version = GetString(root, "version");
             icon = GetString(root, "icon");
             entry = GetString(root, "entry");
         }
@@ -86,6 +97,8 @@ public sealed class ModProject
         return new ModProject(
             manifestPath,
             displayName,
+            id ?? string.Empty,
+            version ?? string.Empty,
             Path.GetFullPath(Path.Combine(directory, iconName)),
             NamespaceOf(entry));
     }

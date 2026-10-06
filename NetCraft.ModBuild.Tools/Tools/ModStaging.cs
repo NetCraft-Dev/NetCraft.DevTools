@@ -5,10 +5,10 @@ using NetCraft.ModBuild.Core;
 namespace NetCraft.ModBuild.Tools;
 
 //ModStaging 把本次要加载的模组备进运行目录
-//先搬 libs 里的 modapi 再把当前项目构建一遍 两者都落进 run/mods 服务端一启动就能扫到
+//先搬 Build/kernel 里的 modapi 再把当前项目构建一遍 两者都落进 run/mods 服务端一启动就能扫到
 internal static class ModStaging
 {
-    //ModApiFileName libs 里的 modapi 文件名
+    //ModApiFileName 内核里的 modapi 文件名
     //模组 dll 引用它 但内核内嵌子库与模组内嵌依赖都不管这个程序集 只能在 mods 里备一份
     private const string ModApiFileName = "NetCraft.ModApi.dll";
 
@@ -34,13 +34,13 @@ internal static class ModStaging
         return StageBuildOutput(projectRoot, mods);
     }
 
-    //StageModApi 把 libs 里的 modapi 搬进 mods
+    //StageModApi 把 Build/kernel 里的 modapi 搬进 mods
     private static void StageModApi(string projectRoot, string mods)
     {
-        var source = Path.Combine(projectRoot, "libs", ModApiFileName);
+        var source = Path.Combine(projectRoot, ProjectLayout.Kernel, ModApiFileName);
         if (!File.Exists(source))
         {
-            Trace.Log($"no libs/{ModApiFileName} under {projectRoot}");
+            Trace.Log($"no {Path.Combine(ProjectLayout.Kernel, ModApiFileName)} under {projectRoot}");
             return;
         }
 

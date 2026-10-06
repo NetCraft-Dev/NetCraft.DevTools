@@ -10,10 +10,16 @@ public static class TemplateStore
     //CatalogFileName 清单文件名
     public const string CatalogFileName = "NetCraftTemplate.yaml";
 
-    //CatalogUrl 清单的引导地址 只有本地还没有清单时才走它
-    //清单里的 base 是示例文件的基准 与这里不是一回事
-    private const string CatalogUrl =
+    //DefaultCatalogUrl 内置的清单引导地址 只有本地还没有清单时才走它
+    private const string DefaultCatalogUrl =
         "https://raw.githubusercontent.com/NetCraft-Dev/NetCraftTemplate/refs/heads/main/NetCraftTemplate.yaml";
+
+    //CatalogUrl 当前使用的清单地址 项目配置可以顶掉内置那个
+    //清单里的 base 是示例文件的基准 与这里不是一回事
+    private static string CatalogUrl { get; set; } = DefaultCatalogUrl;
+
+    //BaseOverride 示例文件基准的覆盖 配了就拿它顶掉清单里写的那个
+    private static string BaseOverride { get; set; } = string.Empty;
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(30) };
 
@@ -26,6 +32,20 @@ public static class TemplateStore
 
     //CatalogPath 清单的本地路径
     public static string CatalogPath => Path.Combine(Root, CatalogFileName);
+
+    //Configure 按项目配置调整来源 没配的项一律保持默认
+    //镜像那种前缀直接拼在原始地址前面 ncm 不做任何加工
+    public static void Configure(NcProject? project)
+    {
+        var template = project?.Template;
+        if (template is null)
+            return;
+
+        if (!string.IsNullOrWhiteSpace(template.Url))
+            CatalogUrl = template.Url;
+
+        BaseOverride = template.Base;
+    }
 
     //LoadCatalog 读清单 本地没有先建目录拉一份
     public static TemplateCatalog? LoadCatalog()
@@ -44,7 +64,11 @@ public static class TemplateStore
             Trace.Log($"catalog cache hit {CatalogPath}");
         }
 
-        return TemplateCatalog.Read(CatalogPath);
+        var catalog = TemplateCatalog.Read(CatalogPath);
+        if (catalog is not null && !string.IsNullOrWhiteSpace(BaseOverride))
+            catalog.Base = BaseOverride;
+
+        return catalog;
     }
 
     //FetchFile 取一份模板文件 本地有就用本地 没有才下载并写进缓存

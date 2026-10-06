@@ -25,6 +25,9 @@ internal static class TemplateTool
     //Run 第一个非选项参数选子命令
     private static int Run(string[] args)
     {
+        //模板来源跟着当前目录的项目配置走 没有工程就用内置那个
+        TemplateStore.Configure(NcProject.TryFind(Environment.CurrentDirectory, out _));
+
         var refresh = false;
         var rest = new List<string>(args.Length);
 

@@ -10,13 +10,21 @@ public static class Program
     [STAThread]
     public static int Main(string[] args)
     {
+        //引擎要从本机 sdk 目录取 解析事件得赶在第一个 msbuild 类型被加载之前挂上
+        MsBuildLibrary.Attach(out _);
+
         //加新工具在这里补一行登记
         IconTool.Register();
         InitTool.Register();
         TemplateTool.Register();
+        AddTool.Register();
+        RemoveTool.Register();
+        RestoreTool.Register();
         BuildTool.Register();
+        CleanTool.Register();
         AsmTool.Register();
         RunServerTool.Register();
+        UpgradeTool.Register();
         UpdateTool.Register();
 
         if (args.Length == 0)
@@ -33,6 +41,25 @@ public static class Program
 
             Help.Print(Console.Out);
             return 0;
+        }
+
+        //项目任务先按精确名字找 内置工具再按宽松方式兜底
+        //于是任务叫 Build 与内置的 build 两不相干 各自都还能用
+        var project = NcProject.TryFind(Environment.CurrentDirectory, out var configError);
+        if (!string.IsNullOrEmpty(configError))
+        {
+            Console.WriteLine($"error: {configError}");
+            return 1;
+        }
+
+        var task = project?.FindTask(args[0]);
+        if (task is not null)
+        {
+            //任务参数还没做 收着不报错 但得让人知道没生效
+            if (args.Length > 1)
+                Console.WriteLine($"note: task arguments are not supported yet, {args.Length - 1} argument(s) ignored");
+
+            return TaskRunner.Run(project!, task);
         }
 
         var tool = ToolRegistry.Find(args[0]);

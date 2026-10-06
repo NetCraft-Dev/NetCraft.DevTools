@@ -21,7 +21,7 @@ internal static class SourceFiles
     }
 
     //IsGenerated 相对 root 的路径里有没有落在构建产物目录下的那一段
-    private static bool IsGenerated(string root, string path)
+    internal static bool IsGenerated(string root, string path)
     {
         var relative = Path.GetRelativePath(root, path);
         return relative

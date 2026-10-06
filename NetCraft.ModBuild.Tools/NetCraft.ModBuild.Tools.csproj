@@ -20,13 +20,33 @@
     <EmbeddedResource Include="..\iconttf.ttf" LogicalName="iconttf.ttf" />
   </ItemGroup>
 
+  <!--
+    引擎按名字从本机 sdk 目录解析 输出目录里要是留着 nuget 那份就会先被用上
+    与 sdk 版本对不上 解析器与 targets 都会翻车 所以构建完就把它清掉
+  -->
+  <Target Name="DropMsBuildRuntime" AfterTargets="Build">
+    <ItemGroup>
+      <MsBuildRuntimeFile Include="$(OutputPath)Microsoft.Build*.dll;$(OutputPath)Microsoft.NET.StringTools.dll" />
+    </ItemGroup>
+    <Delete Files="@(MsBuildRuntimeFile)" />
+  </Target>
+
   <ItemGroup>
     <EmbeddedResource Include="Gui\ui.html" LogicalName="ui.html" />
     <EmbeddedResource Include="Gui\marked.min.js" LogicalName="marked.min.js" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="ICSharpCode.Decompiler" Version="11.1.0.9782" />
+    <!--
+      Microsoft.Build 只用来编译 运行时不带它自己的程序集。
+      引擎必须用本机 sdk 自带那一份 否则 sdk 的解析器与 targets 会因为接口对不上直接翻车
+      运行期由 Targets/MsBuildLibrary.cs 从 sdk 目录挂进来。
+    -->
+    <PackageReference Include="Microsoft.Build" Version="17.14.28" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.Build.Framework" Version="17.14.28" ExcludeAssets="runtime" />
+    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.14.28" ExcludeAssets="runtime" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
+    <PackageReference Include="NuGet.Protocol" Version="7.9.0" />
     <PackageReference Include="Photino.NET" Version="4.0.16" />
     <PackageReference Include="SixLabors.ImageSharp.Drawing" Version="2.1.5" />
     <PackageReference Include="Spectre.Console" Version="0.57.2" />

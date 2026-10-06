@@ -3,7 +3,7 @@
   <!--
     NetCraft 模组项目模板包。
     打包后 dotnet new install NetCraft.ModsProjectType 即可用 dotnet new ncm 创建模组项目。
-    模板里的 content/ncm/libs/ 是要随包发出去的引用程序集 所以 pack 前会从 reference/ 同步一次
+    模板里的 content/ncm/Build/kernel/ 是要随包发出去的引用程序集 所以 pack 前会从 reference/ 同步一次
     免得发出去的还是老接口。
   -->
 
@@ -26,32 +26,32 @@
   <ItemGroup>
     <!--
       模板文件全量进包。
-      排除 libs 是因为它由 SyncNetCraftLibs 单独挂 排除 obj 与 bin 是因为模板目录
+      排除 Build\kernel 是因为它由 SyncNetCraftLibs 单独挂 排除 obj 与 bin 是因为模板目录
       被 IDE 或构建碰过之后会留下中间产物 它们进包会跟着落到新项目里。
     -->
     <None Include="content\**\*"
-          Exclude="content\ncm\libs\**\*;content\ncm\obj\**\*;content\ncm\bin\**\*"
+          Exclude="content\ncm\Build\kernel\**\*;content\ncm\obj\**\*;content\ncm\bin\**\*"
           Pack="true" PackagePath="content\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!--
     SyncNetCraftLibs 把内核引用程序集同步进模板 并把它们挂进包。
-    同步要在 _GetPackageFiles 之前 挂包项也必须在这一刻做 —— 首次打包时 libs/ 还不存在
+    同步要在 _GetPackageFiles 之前 挂包项也必须在这一刻做 —— 首次打包时 Build\kernel 还不存在
     光靠评估阶段的 None 通配符匹配不到它 结果就是包出了但里面没有引用程序集。
   -->
   <Target Name="SyncNetCraftLibs" BeforeTargets="_GetPackageFiles">
     <ItemGroup>
       <NetCraftLibSource Include="$(NetCraftRuntimeDir)\*.dll" />
-      <NetCraftLibOutput Include="$(MSBuildThisFileDirectory)content\ncm\libs" />
+      <NetCraftLibOutput Include="$(MSBuildThisFileDirectory)content\ncm\Build\kernel" />
     </ItemGroup>
     <Error Condition="'@(NetCraftLibSource)' == ''"
            Text="No NetCraft reference assemblies found; check the directory NetCraftRuntimeDir points to: $(NetCraftRuntimeDir)" />
     <MakeDir Directories="@(NetCraftLibOutput)" />
     <Copy SourceFiles="@(NetCraftLibSource)" DestinationFolder="@(NetCraftLibOutput)" SkipUnchangedFiles="true" />
     <ItemGroup>
-      <None Include="$(MSBuildThisFileDirectory)content\ncm\libs\*.dll" Pack="true" PackagePath="content\ncm\libs\" />
+      <None Include="$(MSBuildThisFileDirectory)content\ncm\Build\kernel\*.dll" Pack="true" PackagePath="content\ncm\Build\kernel\" />
     </ItemGroup>
-    <Message Importance="high" Text="Synced @(NetCraftLibSource->Count()) NetCraft reference assemblies -> content\ncm\libs" />
+    <Message Importance="high" Text="Synced @(NetCraftLibSource->Count()) NetCraft reference assemblies -> content\ncm\Build\kernel" />
   </Target>
 
 </Project>

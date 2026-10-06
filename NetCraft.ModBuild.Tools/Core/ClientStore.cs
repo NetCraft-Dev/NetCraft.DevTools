@@ -1,6 +1,7 @@
 using System.Runtime.Loader;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Spectre.Console;
 
 namespace NetCraft.ModBuild.Core;
 
@@ -39,19 +40,33 @@ public static class ClientStore
         ("https://launchermeta.mojang.com", Mirror),
     ];
 
-    private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(5) };
-
     //Root 缓存目录 程序根目录下的 Client
     public static string Root => Path.Combine(AppContext.BaseDirectory, DirectoryName);
 
-    //Ensure 保证内核版本那份客户端 jar 在缓存里 返回它的路径 办不到返回 null
+    //ConfiguredVersion 配置里指定的 jar 版本 空表示照内核版本走
+    private static string ConfiguredVersion { get; set; } = string.Empty;
+
+    //ConfiguredJar 配置里给的直链 给了就不再查版本清单
+    private static string ConfiguredJar { get; set; } = string.Empty;
+
+    //Configure 按项目配置调整版本与直链 没配的项一律保持默认
+    public static void Configure(NcProject? project)
+    {
+        if (project is null)
+            return;
+
+        ConfiguredVersion = project.Client.Version;
+        ConfiguredJar = project.Client.Jar;
+    }
+
+    //Ensure 保证这台机器要的那份客户端 jar 在缓存里 返回它的路径 办不到返回 null
     //已有且看着完整就不再联网 每次开服都重下一遍太亏
     public static string? Ensure()
     {
-        var version = KernelVersion();
+        var version = Version();
         if (version is null)
         {
-            Console.WriteLine("error: cannot read the kernel version from NetCraft.Config");
+            Console.WriteLine("error: cannot read the kernel version from NetCraft.Config, pin one with <Client Version=\"...\">");
             return null;
         }
 
@@ -66,6 +81,10 @@ public static class ClientStore
         Console.WriteLine($"Downloading Minecraft client jar {version} to {Path.GetDirectoryName(target)}");
         return Fetch(version, target) ? target : null;
     }
+
+    //Version 用哪个版本 配置里指定了就以它为准 没指定才读内核里那个
+    private static string? Version()
+        => string.IsNullOrWhiteSpace(ConfiguredVersion) ? KernelVersion() : ConfiguredVersion;
 
     //KernelVersion 内核里的版本字符串 横杠前面那段就是 Minecraft 的版本号
     //读的是编译期常量 只借用元数据 用完把加载上下文卸掉
@@ -104,38 +123,152 @@ public static class ClientStore
         }
     }
 
-    //Fetch 按版本名把 jar 拉下来 落盘前对数与哈希都对一遍
+    //Fetch 把 jar 拉下来 配置给了直链就直接下 否则先查版本清单再下
+    //落盘前把能校验的都过一遍 大小与哈希只有清单那条路才有
     private static bool Fetch(string version, string target)
     {
-        if (FindClient(version) is not { } client)
-            return false;
-
-        var bytes = TryGet(client.Url, out var error);
-        if (bytes is null)
+        ClientJarFile? entry = null;
+        string url;
+        if (string.IsNullOrWhiteSpace(ConfiguredJar))
         {
-            Console.WriteLine($"error: failed to download {client.Url}: {error}");
-            return false;
+            if (FindClient(version) is not { } client)
+                return false;
+
+            entry = client;
+            url = client.Url;
         }
-
-        if (client.Size > 0 && bytes.LongLength != client.Size)
+        else
         {
-            Console.WriteLine($"error: client jar size mismatch, expected {client.Size} got {bytes.LongLength}");
-            return false;
-        }
-
-        var actual = Convert.ToHexStringLower(SHA1.HashData(bytes));
-        if (client.Sha1.Length > 0 && !string.Equals(actual, client.Sha1, StringComparison.OrdinalIgnoreCase))
-        {
-            Console.WriteLine($"error: client jar sha1 mismatch, expected {client.Sha1} got {actual}");
-            return false;
+            url = ConfiguredJar;
         }
 
         Directory.CreateDirectory(Path.GetDirectoryName(target)!);
         var temp = target + ".tmp";
-        File.WriteAllBytes(temp, bytes);
+
+        string error;
+        var ok = Transfer.Enabled
+            ? DownloadWithProgress(url, temp, version, out error)
+            : TryDownload(url, temp, static (_, _) => { }, out error);
+        if (!ok)
+        {
+            Console.WriteLine($"error: failed to download {url}: {error}");
+            return false;
+        }
+
+        var info = new FileInfo(temp);
+        var size = entry?.Size ?? 0L;
+        if (size > 0 && info.Length != size)
+        {
+            Console.WriteLine($"error: client jar size mismatch, expected {size} got {info.Length}");
+            Discard(temp);
+            return false;
+        }
+
+        var sha1 = entry?.Sha1 ?? string.Empty;
+        var actual = Sha1(temp);
+        if (sha1.Length > 0 && !string.Equals(actual, sha1, StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine($"error: client jar sha1 mismatch, expected {sha1} got {actual}");
+            Discard(temp);
+            return false;
+        }
+
+        //直链那边没有清单可依 至少把明显没下全的挡下来
+        if (info.Length < MinJarSize)
+        {
+            Console.WriteLine($"error: the downloaded jar is only {info.Length} byte(s), treating it as incomplete");
+            Discard(temp);
+            return false;
+        }
+
         File.Move(temp, target, overwrite: true);
         Trace.Log($"client jar saved {target}");
         return true;
+    }
+
+    //DownloadWithProgress 边下边画一条字节进度
+    //服务端不给总长时退成滚动条 只在描述里报已下字节
+    private static bool DownloadWithProgress(string url, string target, string label, out string error)
+    {
+        var ok = false;
+        var failure = string.Empty;
+        AnsiConsole.Progress()
+            .Columns(
+                new TaskDescriptionColumn(),
+                new ProgressBarColumn(),
+                new PercentageColumn(),
+                new TransferSpeedColumn())
+            .Start(context =>
+            {
+                var task = context.AddTask($"[green]{Markup.Escape(label)}[/]");
+                ok = TryDownload(url, target, (received, total) =>
+                {
+                    if (total is { } length and > 0)
+                    {
+                        task.MaxValue = length;
+                        task.Value = received;
+                        return;
+                    }
+
+                    task.IsIndeterminate = true;
+                    task.Description = $"[green]{Markup.Escape(label)}[/] {Human(received)}";
+                }, out failure);
+            });
+
+        error = failure;
+        return ok;
+    }
+
+    //TryDownload 流式下载 先走镜像再走原地址 每个地址各有几次重试
+    private static bool TryDownload(string url, string target, Action<long, long?> report, out string error)
+    {
+        error = string.Empty;
+        foreach (var candidate in new[] { MirrorUrl(url), url }.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            for (var attempt = 1; attempt <= Attempts; attempt++)
+            {
+                if (Transfer.DownloadToFile(candidate, target, report, out error))
+                    return true;
+
+                Trace.Log($"download {candidate} attempt {attempt} failed: {error}");
+            }
+        }
+        return false;
+    }
+
+    //Sha1 算文件的 sha1 十六进制小写 读不出返回空串
+    private static string Sha1(string path)
+    {
+        try
+        {
+            using var stream = File.OpenRead(path);
+            return Convert.ToHexStringLower(SHA1.HashData(stream));
+        }
+        catch (IOException e)
+        {
+            Trace.Log($"cannot hash {path}: {e.Message}");
+            return string.Empty;
+        }
+    }
+
+    //Human 字节数改成人读的单位 总长拿不到时进度条上用它报数
+    private static string Human(long bytes)
+        => bytes >= 1024 * 1024
+            ? $"{bytes / 1024d / 1024d:0.0} MB"
+            : $"{bytes / 1024d:0.0} KB";
+
+    //Discard 删掉没通过校验的临时文件
+    private static void Discard(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+                File.Delete(path);
+        }
+        catch (IOException e)
+        {
+            Trace.Log($"cannot remove {path}: {e.Message}");
+        }
     }
 
     //FindClient 版本清单里按版本名找到 json 再从 json 里取客户端那一段
@@ -195,7 +328,7 @@ public static class ClientStore
         return new ClientJarFile(address, size, sha1);
     }
 
-    //TryGet 下载一份文件 先走镜像再走原地址 每个地址各有几次重试
+    //TryGet 下载一份小内容 先走镜像再走原地址 每个地址各有几次重试
     private static byte[]? TryGet(string url, out string error)
     {
         error = string.Empty;
@@ -203,15 +336,11 @@ public static class ClientStore
         {
             for (var attempt = 1; attempt <= Attempts; attempt++)
             {
-                try
-                {
-                    return Http.GetByteArrayAsync(candidate).GetAwaiter().GetResult();
-                }
-                catch (Exception e)
-                {
-                    error = $"{e.GetType().Name}: {e.Message}";
-                    Trace.Log($"download {candidate} attempt {attempt} failed: {error}");
-                }
+                var bytes = Transfer.GetBytes(candidate, out error);
+                if (bytes is not null)
+                    return bytes;
+
+                Trace.Log($"download {candidate} attempt {attempt} failed: {error}");
             }
         }
         return null;
