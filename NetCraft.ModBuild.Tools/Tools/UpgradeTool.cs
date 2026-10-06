@@ -18,6 +18,9 @@ internal static class UpgradeTool
     //DeployTargetName 模板里负责把产物送到宿主目录的那个目标
     private const string DeployTargetName = "DeployModToHosts";
 
+    //RuntimeTargetName ncm 那种工程里删 msbuild 运行时副本的目标 ncm 自己不走 msbuild
+    private const string RuntimeTargetName = "DropMsBuildRuntime";
+
     //Register 把本工具登记进注册表 名字说明与参数都写在这一行
     public static void Register()
         => ToolRegistry.Register("upgrade", "Convert a csproj based mod project to a .ncproj one", Run,
@@ -124,8 +127,11 @@ internal static class UpgradeTool
                 migration.Handled.Add($"<Target Name=\"{name}\"> (ncm embeds the dependencies itself)");
             else if (string.Equals(name, DeployTargetName, StringComparison.Ordinal))
                 ReadDeployTarget(target, migration);
+            else if (string.Equals(name, RuntimeTargetName, StringComparison.Ordinal))
+                migration.Handled.Add(
+                    $"<Target Name=\"{name}\"> (ncm resolves the msbuild assemblies from the sdk directory itself)");
             else
-                migration.Unhandled.Add($"<Target Name=\"{name}\">");
+                migration.Unhandled.Add($"<Target Name=\"{name}\"> (redo it as a task under <Tasks> if you still need it)");
         }
 
         return migration;
@@ -163,6 +169,21 @@ internal static class UpgradeTool
             case "AssemblyName":
                 migration.AssemblyName = value;
                 migration.Migrated.Add($"AssemblyName {value}");
+                break;
+            case "RootNamespace":
+                migration.RootNamespace = value;
+                migration.Migrated.Add($"RootNamespace {value}");
+                break;
+            case "OutputType":
+                if (string.Equals(value, NcBuild.ExeOutputType, StringComparison.OrdinalIgnoreCase))
+                {
+                    migration.OutputType = NcBuild.ExeOutputType;
+                    migration.Migrated.Add($"OutputType {value}");
+                }
+                else if (string.Equals(value, NcBuild.DefaultOutputType, StringComparison.OrdinalIgnoreCase))
+                    migration.Handled.Add($"<OutputType>{value}</OutputType> (the ncm default)");
+                else
+                    migration.Unhandled.Add($"<OutputType>{value}</OutputType>");
                 break;
             case "OutputPath":
                 //ncproj 的插值只认自己那几个 带 msbuild 变量的照搬过去只会变成死字符串
@@ -207,6 +228,13 @@ internal static class UpgradeTool
                     migration.Warnings.Add(
                         $"the project targets {value} but ncm runs on {TargetFramework.Name}, the kernel must run on the same runtime");
                 }
+                break;
+            case "PackAsTool":
+            case "ToolCommandName":
+            case "PackageId":
+            case "Description":
+            case "PackageLicenseExpression":
+                migration.Handled.Add($"<{name}>{value}</{name}> (that belongs to dotnet pack, ncm does not pack the project)");
                 break;
             case "EnableDefaultCompileItems":
             case "EnableDefaultItems":
@@ -271,9 +299,21 @@ internal static class UpgradeTool
                 return;
             case "EmbeddedResource":
                 if (IsManifestOrIcon(include) || IsManifestOrIcon(LogicalName(item)))
+                {
                     migration.Handled.Add($"<EmbeddedResource Include=\"{include}\"> (ncm embeds the manifest and the icon itself)");
-                else
-                    migration.Unhandled.Add($"<EmbeddedResource Include=\"{include}\">");
+                    return;
+                }
+
+                if (string.IsNullOrWhiteSpace(include))
+                {
+                    migration.Unhandled.Add("<EmbeddedResource> without an Include");
+                    return;
+                }
+
+                var logical = LogicalName(item);
+                migration.Embedded.Add(new NcResource(include, logical));
+                migration.Migrated.Add($"EmbeddedResource {include}"
+                    + (logical.Length > 0 ? $" as {logical}" : string.Empty));
                 return;
             case "Compile":
                 migration.Handled.Add($"<Compile Include=\"{include}\"> (ncm scans the sources itself)");
@@ -318,6 +358,8 @@ internal static class UpgradeTool
 
         var build = new XElement("Build");
         SetAttribute(build, "AssemblyName", migration.AssemblyName);
+        SetAttribute(build, "RootNamespace", migration.RootNamespace);
+        SetAttribute(build, "OutputType", migration.OutputType);
         SetAttribute(build, "Output", migration.Output);
         SetAttribute(build, "DefineConstants", migration.DefineConstants);
         if (migration.Nullable is { } nullable)
@@ -359,6 +401,18 @@ internal static class UpgradeTool
 
         if (migration.Deploy.Count > 0)
             root.Add(new XElement("Deploy", new XAttribute("To", string.Join(';', migration.Deploy))));
+
+        if (migration.Embedded.Count > 0)
+        {
+            var embedded = new XElement("EmbeddedResources");
+            foreach (var resource in migration.Embedded)
+            {
+                var item = new XElement("Resource", new XAttribute("Include", resource.Include));
+                SetAttribute(item, "LogicalName", resource.LogicalName);
+                embedded.Add(item);
+            }
+            root.Add(embedded);
+        }
 
         if (migration.AvaloniaResources.Count > 0)
         {
@@ -455,6 +509,12 @@ internal static class UpgradeTool
     {
         public string AssemblyName { get; set; } = string.Empty;
 
+        //RootNamespace 只影响内嵌资源的默认名字
+        public string RootNamespace { get; set; } = string.Empty;
+
+        //OutputType 只有 Exe 与默认的 Library 两种会写进来
+        public string OutputType { get; set; } = string.Empty;
+
         public string Output { get; set; } = string.Empty;
 
         public string LangVersion { get; set; } = string.Empty;
@@ -476,6 +536,9 @@ internal static class UpgradeTool
 
         //AvaloniaResources 要打进资源包的模式
         public List<string> AvaloniaResources { get; } = [];
+
+        //Embedded 要打进产物程序集的普通资源
+        public List<NcResource> Embedded { get; } = [];
 
         //Files 要直接当编译引用的 dll
         public List<string> Files { get; } = [];

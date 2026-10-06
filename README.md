@@ -174,8 +174,8 @@ Everything the build needs at build time lives under `Build`: `Build/kernel` hol
 ```xml
 <ncproj version="1">
   <Check LangVersion="latest" />
-  <Build AssemblyName="Demo" Configuration="Release" Output="Build/out"
-         Nullable="true" ImplicitUsings="true" DefineConstants="DEBUG" ExtraArgs="" />
+  <Build AssemblyName="Demo" Configuration="Release" Output="Build/out" OutputType="Library"
+         RootNamespace="Demo" Nullable="true" ImplicitUsings="true" DefineConstants="DEBUG" ExtraArgs="" />
   <Packages>
     <Package Id="Newtonsoft.Json" Version="13.0.3" />
   </Packages>
@@ -193,6 +193,10 @@ Everything the build needs at build time lives under `Build`: `Build/kernel` hol
   <AvaloniaResources>
     <Resource Include="Gui/Assets/**" />
   </AvaloniaResources>
+  <EmbeddedResources>
+    <Resource Include="assets/**" />
+    <Resource Include="Fonts/icon.ttf" LogicalName="icon.ttf" />
+  </EmbeddedResources>
   <Deploy To="run/mods;../host/mods" />
   <Tasks>
     <Task Name="release" Description="build and pack" Depends="check">
@@ -207,7 +211,7 @@ Everything the build needs at build time lives under `Build`: `Build/kernel` hol
 | Element | Attributes |
 |---|---|
 | `Check` | `LangVersion` — the C# version used for the api and syntax checks |
-| `Build` | `AssemblyName`, `Configuration`, `Output`, `Nullable`, `ImplicitUsings`, `DefineConstants`, `ExtraArgs` |
+| `Build` | `AssemblyName`, `Configuration`, `Output`, `OutputType` — `Library` (the default) or `Exe`, a plain compilation choice, ncm writes neither an apphost nor a runtimeconfig, `RootNamespace` — used as the default prefix of embedded resource names, `Nullable`, `ImplicitUsings`, `DefineConstants`, `ExtraArgs` |
 | `Packages` | one `Package` per dependency with `Id` and an optional `Version`, the version range syntax matches NuGet |
 | `References` | `File` — a dll path or pattern, `*`, `?` and `**` work as wildcards; `Project` — the directory or the project file of another project, ncproj or csproj. Both are resolved relative to the project root and only used as compile references, never embedded into the mod nor deployed. A referenced project is built first, so its output is up to date |
 | `Server` | `Cache` — where the runtime files are cached, `Args` — extra server arguments, `Debug` — always run in debug mode |
@@ -216,6 +220,7 @@ Everything the build needs at build time lives under `Build`: `Build/kernel` hol
 | `Template` | `Url` — where the template catalog is fetched from, `Base` — the base the example files are pulled from, replacing the one written in the catalog; either may be left out, and both take a mirror prefix the same way `Sources` does |
 | `InternalsVisibleTo` | one `Assembly` per friend assembly with `Name`, emitted as `[assembly: InternalsVisibleTo]` |
 | `AvaloniaResources` | one `Resource` per pattern with `Include`, packed into the `!AvaloniaResources` resource the Avalonia asset loader reads; every `*.axaml` of the project is picked up as well, so only plain assets have to be listed |
+| `EmbeddedResources` | one `Resource` per pattern with `Include` and an optional `LogicalName`; every matched file is embedded into the built assembly. Without `LogicalName` the resource name is the root namespace plus the file path relative to the project root, slashes turned into dots, so files outside the project root need an explicit one |
 | `Deploy` | `To` — semicolon separated directories the built dll is copied into right after a successful build |
 | `Tasks` | one `Task` per task with `Name`, `Description`, `Depends` and `Override`, holding `Exec` steps that run a command line, `Copy` steps that take `From` and `To`, and `Zip` steps that pack the `From` directory into the `To` file. `$(Configuration)`, `$(ProjectDir)`, `$(ModId)`, `$(ModName)`, `$(ModVersion)` and `$(env:NAME)` are substituted in every attribute |
 | root | `Override` — the default for tasks that do not carry their own |

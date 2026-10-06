@@ -10,11 +10,12 @@ namespace NetCraft.ModBuild.Compile;
 
 //CompileOptions 一次编译用的设置
 public sealed record CompileOptions(string AssemblyName, string LangVersion, bool Nullable, bool ImplicitUsings,
-    string DefineConstants)
+    string DefineConstants, OutputKind OutputKind)
 {
     //Default 只看不编时用的那套 与模板工程的默认值一致
     public static CompileOptions Default { get; } =
-        new("ncm-project", NcCheck.DefaultLangVersion, true, true, string.Empty);
+        new("ncm-project", NcCheck.DefaultLangVersion, true, true, string.Empty,
+            OutputKind.DynamicallyLinkedLibrary);
 
     //From 按项目配置来 fallbackName 是配置没写程序集名时的兜底
     public static CompileOptions From(NcProject project, string? fallbackName = null)
@@ -25,7 +26,10 @@ public sealed record CompileOptions(string AssemblyName, string LangVersion, boo
             project.Check.LangVersion,
             project.Build.Nullable,
             project.Build.ImplicitUsings,
-            project.Build.DefineConstants);
+            project.Build.DefineConstants,
+            string.Equals(project.Build.OutputType, NcBuild.ExeOutputType, StringComparison.OrdinalIgnoreCase)
+                ? OutputKind.ConsoleApplication
+                : OutputKind.DynamicallyLinkedLibrary);
 }
 
 //ProjectCompilation 装配好的一次编译
@@ -115,7 +119,7 @@ public static class CompilationFactory
             trees,
             LoadReferences(referencePaths),
             new CSharpCompilationOptions(
-                OutputKind.DynamicallyLinkedLibrary,
+                options.OutputKind,
                 nullableContextOptions: options.Nullable
                     ? NullableContextOptions.Enable
                     : NullableContextOptions.Disable,

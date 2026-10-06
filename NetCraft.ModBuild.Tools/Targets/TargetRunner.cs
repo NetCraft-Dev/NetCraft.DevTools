@@ -85,7 +85,7 @@ internal static class TargetRunner
         builder.AppendLine($"    <TargetFramework>{TargetFramework.Name}</TargetFramework>");
         builder.AppendLine($"    <Configuration>{project.Build.Configuration}</Configuration>");
         builder.AppendLine($"    <AssemblyName>{Escape(name)}</AssemblyName>");
-        builder.AppendLine($"    <RootNamespace>{Escape(name)}</RootNamespace>");
+        builder.AppendLine($"    <RootNamespace>{Escape(RootNamespace(project, name))}</RootNamespace>");
         builder.AppendLine("    <EnableDefaultItems>false</EnableDefaultItems>");
         builder.AppendLine("    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>");
         builder.AppendLine("    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>");
@@ -140,6 +140,10 @@ internal static class TargetRunner
         => string.IsNullOrWhiteSpace(project.Build.AssemblyName)
             ? new DirectoryInfo(root).Name
             : project.Build.AssemblyName;
+
+    //RootNamespace 配置里写了就用它 没写跟产物名走
+    private static string RootNamespace(NcProject project, string name)
+        => string.IsNullOrWhiteSpace(project.Build.RootNamespace) ? name : project.Build.RootNamespace;
 
     //Sdks 让引擎找得到本机 sdk 少了它 Sdk 属性那句没法求值
     //扩展路径也要一起指过去 sdk 根下才有 Current\Microsoft.Common.props

@@ -77,6 +77,9 @@ public static class Compiler
         //Avalonia 那批资源也要盯 它们不打进产物之外的地方 变了没人会替我们重编
         inputs.AddRange(AvaloniaResources.Inputs(root, project.AvaloniaResources));
 
+        //配置里声明的内嵌资源同理 只在这份产物里出现
+        inputs.AddRange(Embedded(root, project).Select(item => item.Path));
+
         var icon = ModProject.TryFind(root)?.IconPath;
         if (icon is not null)
             inputs.Add(icon);
@@ -212,7 +215,62 @@ public static class Compiler
                 Add(AvaloniaResources.ResourceName, () => new MemoryStream(packed, writable: false));
         }
 
+        //配置里声明的普通资源 名字取 LogicalName 没写的按 csproj 的规矩折
+        foreach (var item in Embedded(root, project))
+        {
+            var name = item.LogicalName.Length > 0 ? item.LogicalName : DefaultName(root, project, item.Path);
+            if (name is null)
+            {
+                Console.WriteLine($"warning: {Path.GetRelativePath(root, item.Path)} is outside the project, "
+                    + "add a LogicalName to its <Resource> in <EmbeddedResources>");
+                continue;
+            }
+
+            AddFile(name, item.Path);
+        }
+
         return resources;
+    }
+
+    //Embedded 展开 <EmbeddedResources> 里声明的资源 一份都没匹配上时提醒一句
+    private static List<ExpandedResource> Embedded(string root, NcProject project)
+    {
+        var found = new List<ExpandedResource>();
+        foreach (var resource in project.EmbeddedResources)
+        {
+            var matched = PathPattern.Match(root, resource.Include).ToList();
+            if (matched.Count == 0)
+            {
+                Console.WriteLine($"warning: <EmbeddedResources> matched no file for {resource.Include}");
+                continue;
+            }
+
+            foreach (var path in matched)
+                found.Add(new ExpandedResource(path, resource.LogicalName));
+        }
+
+        return found;
+    }
+
+    //ExpandedResource 匹配出来的一条资源 名字可能还空着等调用方折
+    private sealed record ExpandedResource(string Path, string LogicalName);
+
+    //DefaultName 没写 LogicalName 时按 csproj 的规矩算资源名
+    //根命名空间加相对路径 项目外的文件算不出来
+    private static string? DefaultName(string root, NcProject project, string path)
+    {
+        var relative = Path.GetRelativePath(root, path);
+        if (relative.StartsWith("..", StringComparison.Ordinal))
+            return null;
+
+        var prefix = project.Build.RootNamespace.Length > 0
+            ? project.Build.RootNamespace
+            : project.Build.AssemblyName.Length > 0
+                ? project.Build.AssemblyName
+                : new DirectoryInfo(root).Name;
+
+        var name = relative.Replace('\\', '.').Replace('/', '.');
+        return prefix.Length > 0 ? prefix + "." + name : name;
     }
 
     //ToDiagnostics 把 Roslyn 的诊断换成项目那套 好与检查那边的输出长得一样

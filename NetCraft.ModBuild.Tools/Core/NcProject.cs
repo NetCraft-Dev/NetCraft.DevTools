@@ -27,8 +27,17 @@ public sealed class NcBuild
     //DefaultOutput 产物默认落在项目根的 Build/out 下
     public static readonly string DefaultOutput = ProjectLayout.Output;
 
+    //DefaultOutputType 没写时编成类库 模组都是这种
+    public const string DefaultOutputType = "Library";
+
+    //ExeOutputType 编成控制台程序的那个名字
+    public const string ExeOutputType = "Exe";
+
+    //OutputTypes 认得的输出类型
+    public static readonly string[] OutputTypes = [DefaultOutputType, ExeOutputType];
+
     public NcBuild(string assemblyName, string configuration, string output, string extraArgs, bool nullable,
-        bool implicitUsings, string defineConstants)
+        bool implicitUsings, string defineConstants, string outputType, string rootNamespace)
     {
         AssemblyName = assemblyName;
         Configuration = string.IsNullOrWhiteSpace(configuration) ? DefaultConfiguration : configuration;
@@ -37,6 +46,8 @@ public sealed class NcBuild
         Nullable = nullable;
         ImplicitUsings = implicitUsings;
         DefineConstants = defineConstants;
+        OutputType = Normalized(outputType);
+        RootNamespace = rootNamespace;
     }
 
     //AssemblyName 产物程序集名 空表示先看清单的 id 再看目录名
@@ -59,10 +70,25 @@ public sealed class NcBuild
 
     //DefineConstants 编译期符号 分号分隔
     public string DefineConstants { get; }
+
+    //OutputType 产物种类 见 OutputTypes
+    public string OutputType { get; }
+
+    //RootNamespace 根命名空间 空表示跟产物名走 只影响内嵌资源的默认名字
+    public string RootNamespace { get; }
+
+    //Normalized 输出类型大小写归一 认不出来退回类库
+    private static string Normalized(string value)
+        => OutputTypes.FirstOrDefault(type => string.Equals(type, value, StringComparison.OrdinalIgnoreCase))
+            ?? DefaultOutputType;
 }
 
 //NcPackage 一条包依赖
 public sealed record NcPackage(string Id, string Version);
+
+//NcResource 一条要打进产物程序集的资源
+//LogicalName 是资源名 不写就按根命名空间加相对路径算
+public sealed record NcResource(string Include, string LogicalName);
 
 //NcServer 开发期服务端的设置
 //Cache 指定运行时文件缓存的落点 Args 是每次开服自动带上的参数 Debug 等于常开调试模式
@@ -263,7 +289,8 @@ public sealed class NcProject
     private NcProject(string path, bool overrides, NcCheck check, NcBuild build,
         IReadOnlyList<NcPackage> packages, IReadOnlyList<NcTask> tasks, NcServer server, NcClient client,
         NcSource? sources, NcTemplate? template, IReadOnlyList<string> friends, IReadOnlyList<string> deploy,
-        IReadOnlyList<string> resources, IReadOnlyList<string> files, IReadOnlyList<string> projects)
+        IReadOnlyList<string> resources, IReadOnlyList<NcResource> embedded, IReadOnlyList<string> files,
+        IReadOnlyList<string> projects)
     {
         Path = path;
         Directory = System.IO.Path.GetDirectoryName(path)!;
@@ -279,6 +306,7 @@ public sealed class NcProject
         InternalsVisibleTo = friends;
         DeployTargets = deploy;
         AvaloniaResources = resources;
+        EmbeddedResources = embedded;
         FileReferences = files;
         ProjectReferences = projects;
     }
@@ -324,6 +352,9 @@ public sealed class NcProject
 
     //AvaloniaResources 要打进 !AvaloniaResources 的资源模式 相对项目根
     public IReadOnlyList<string> AvaloniaResources { get; }
+
+    //EmbeddedResources 要打进产物程序集的普通资源
+    public IReadOnlyList<NcResource> EmbeddedResources { get; }
 
     //FileReferences 直接当编译引用的 dll 模式 相对项目根 支持通配
     public IReadOnlyList<string> FileReferences { get; }
@@ -540,7 +571,8 @@ public sealed class NcProject
         var tasks = new List<NcTask>();
         var packages = new List<NcPackage>();
         var check = new NcCheck(string.Empty);
-        var build = new NcBuild(string.Empty, string.Empty, string.Empty, string.Empty, true, true, string.Empty);
+        var build = new NcBuild(string.Empty, string.Empty, string.Empty, string.Empty, true, true, string.Empty,
+            string.Empty, string.Empty);
         var server = new NcServer(string.Empty, string.Empty, false);
         var client = new NcClient(string.Empty, string.Empty, string.Empty);
         NcSource? sources = null;
@@ -548,6 +580,7 @@ public sealed class NcProject
         var friends = new List<string>();
         var deploy = new List<string>();
         var resources = new List<string>();
+        var embedded = new List<NcResource>();
         var files = new List<string>();
         var projects = new List<string>();
 
@@ -576,6 +609,8 @@ public sealed class NcProject
                 deploy.AddRange(Split((string?)element.Attribute("To"), ';'));
             else if (Folded(name, "AvaloniaResources"))
                 ReadResources(element, path, resources);
+            else if (Folded(name, "EmbeddedResources"))
+                ReadEmbeddedResources(element, path, embedded);
             else if (Folded(name, "References"))
                 ReadReferences(element, path, files, projects);
             else
@@ -583,7 +618,30 @@ public sealed class NcProject
         }
 
         return new NcProject(path, overrides, check, build, packages, tasks, server, client, sources,
-            template, friends, deploy, resources, files, projects);
+            template, friends, deploy, resources, embedded, files, projects);
+    }
+
+    //ReadEmbeddedResources 读 <EmbeddedResources> 下每条要内嵌的资源
+    //LogicalName 可省 省了按根命名空间加相对路径算资源名
+    private static void ReadEmbeddedResources(XElement parent, string path, List<NcResource> resources)
+    {
+        foreach (var element in parent.Elements())
+        {
+            if (!Folded(element.Name.LocalName, "Resource"))
+            {
+                Warn($"unknown element <{element.Name.LocalName}> under <EmbeddedResources> in {path}, ignored");
+                continue;
+            }
+
+            var include = (string?)element.Attribute("Include") ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(include))
+            {
+                Warn($"a <Resource> under <EmbeddedResources> in {path} has no Include, skipped");
+                continue;
+            }
+
+            resources.Add(new NcResource(include, (string?)element.Attribute("LogicalName") ?? string.Empty));
+        }
     }
 
     //ReadReferences 读 <References> 下两类引用
@@ -696,14 +754,22 @@ public sealed class NcProject
 
     //ReadBuild 读 <Build> 下的编译设置
     private static NcBuild ReadBuild(XElement element, string path)
-        => new(
+    {
+        var outputType = (string?)element.Attribute("OutputType") ?? string.Empty;
+        if (outputType.Length > 0 && !NcBuild.OutputTypes.Contains(outputType, StringComparer.OrdinalIgnoreCase))
+            Warn($"unknown OutputType=\"{outputType}\" in {path}, known ones are {string.Join(", ", NcBuild.OutputTypes)}");
+
+        return new NcBuild(
             (string?)element.Attribute("AssemblyName") ?? string.Empty,
             (string?)element.Attribute("Configuration") ?? string.Empty,
             (string?)element.Attribute("Output") ?? string.Empty,
             (string?)element.Attribute("ExtraArgs") ?? string.Empty,
             ReadBool(element, "Nullable", true, path),
             ReadBool(element, "ImplicitUsings", true, path),
-            (string?)element.Attribute("DefineConstants") ?? string.Empty);
+            (string?)element.Attribute("DefineConstants") ?? string.Empty,
+            outputType,
+            (string?)element.Attribute("RootNamespace") ?? string.Empty);
+    }
 
     //ReadPackages 读 <Packages> 下每一条包依赖
     private static void ReadPackages(XElement parent, string path, List<NcPackage> packages)
