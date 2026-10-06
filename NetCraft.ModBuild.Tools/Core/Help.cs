@@ -1,3 +1,5 @@
+using NetCraft.ModBuild.Diagnostics;
+
 namespace NetCraft.ModBuild.Core;
 
 //Help 帮助文本 不带参数或参数不认识时打印
@@ -6,13 +8,10 @@ public static class Help
     //Usage 命令行形状 工具名之后的参数由各工具自己解析
     public const string Usage = "ncm <tool> [options]";
 
-    //Print 列出全部工具与各自的一句话说明 unknown 非空时先提一句没认出来
+    //Print 列出全部工具与各自的一句话说明
     //当前目录属于一个项目时再补一段这个项目自己的任务
-    public static void Print(TextWriter writer, string? unknown = null)
+    public static void Print(TextWriter writer)
     {
-        if (unknown is not null)
-            writer.WriteLine($"Unknown tool: {unknown}");
-
         writer.WriteLine("NetCraft mod development tools");
         writer.WriteLine();
         writer.WriteLine($"Usage: {Usage}");
@@ -25,6 +24,23 @@ public static class Help
 
         writer.WriteLine();
         writer.WriteLine("Run 'ncm help <tool>' to see the parameters of one tool.");
+    }
+
+    //UnknownTool 红色报一句没认出来的名字 有相近的再跟一句建议
+    public static void UnknownTool(TextWriter writer, string name, string? suggestion)
+    {
+        Red(writer, $"Unknown tool: {name}");
+        if (!string.IsNullOrEmpty(suggestion))
+            writer.WriteLine($"Did you mean \"{suggestion}\"?");
+    }
+
+    //Candidates 能当建议的名字 内置工具加上这个项目里能跑的任务
+    public static List<string> Candidates(NcProject? project)
+    {
+        var names = ToolRegistry.All.Select(entry => entry.Name).ToList();
+        if (project is not null)
+            names.AddRange(project.Runnable().Select(task => task.Name));
+        return names;
     }
 
     //PrintTool 打印一个工具的参数说明 内置里没有就看是不是项目任务 返回进程退出码
@@ -42,7 +58,7 @@ public static class Help
         var tool = ToolRegistry.Find(name);
         if (tool is null)
         {
-            writer.WriteLine($"Unknown tool: {name}");
+            UnknownTool(writer, name, Similarity.Closest(name, Candidates(project)));
             return 1;
         }
 
@@ -118,6 +134,15 @@ public static class Help
         var previous = Console.ForegroundColor;
         Console.ForegroundColor = ConsoleColor.Yellow;
         writer.WriteLine($"warning: {message}");
+        Console.ForegroundColor = previous;
+    }
+
+    //Red 红色错误一行
+    private static void Red(TextWriter writer, string message)
+    {
+        var previous = Console.ForegroundColor;
+        Console.ForegroundColor = ConsoleColor.Red;
+        writer.WriteLine(message);
         Console.ForegroundColor = previous;
     }
 }

@@ -1,4 +1,5 @@
 using NetCraft.ModBuild.Core;
+using NetCraft.ModBuild.Diagnostics;
 using NetCraft.ModBuild.Tools;
 
 namespace NetCraft.ModBuild;
@@ -51,23 +52,42 @@ public static class Program
             return 1;
         }
 
-        var task = project?.FindTask(args[0]);
+        return Dispatch(args[0], args[1..], project);
+    }
+
+    //Dispatch 按名字找活干 项目任务优先于内置工具
+    private static int Dispatch(string name, string[] rest, NcProject? project)
+    {
+        var task = project?.FindTask(name);
         if (task is not null)
         {
             //任务参数还没做 收着不报错 但得让人知道没生效
-            if (args.Length > 1)
-                Console.WriteLine($"note: task arguments are not supported yet, {args.Length - 1} argument(s) ignored");
+            if (rest.Length > 0)
+                Console.WriteLine($"note: task arguments are not supported yet, {rest.Length} argument(s) ignored");
 
             return TaskRunner.Run(project!, task);
         }
 
-        var tool = ToolRegistry.Find(args[0]);
-        if (tool is null)
-        {
-            Help.Print(Console.Out, args[0]);
-            return 1;
-        }
+        var tool = ToolRegistry.Find(name);
+        if (tool is not null)
+            return tool.Run(rest);
 
-        return tool.Run(args[1..]);
+        return Unknown(name, rest, project);
+    }
+
+    //Unknown 没认出来的名字 红色报一句 挑得出相近的就问一句要不要照那个跑
+    //输入被重定向时问不了 只把建议打出来 免得在脚本里替人做决定
+    private static int Unknown(string name, string[] rest, NcProject? project)
+    {
+        var suggestion = Similarity.Closest(name, Help.Candidates(project));
+        Help.UnknownTool(Console.Out, name, suggestion);
+
+        if (suggestion is not null && !Console.IsInputRedirected
+            && Prompt.Confirm($"Run \"ncm {suggestion}\" instead?", defaultYes: true, warn: true))
+            return Dispatch(suggestion, rest, project);
+
+        Console.WriteLine();
+        Help.Print(Console.Out);
+        return 1;
     }
 }
