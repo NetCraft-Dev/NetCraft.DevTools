@@ -73,10 +73,7 @@ public static class CompilationFactory
         """;
 
     //Create 装配一次编译 装不出来返回 null 并把原因写进 error
-    //generators 关掉就不加载分析器 只做语义分析时不必跑它们
-    //那一步会把分析器程序集锁在落点里 之后要清落点就清不掉了
-    public static ProjectCompilation? Create(string root, CompileOptions options, out string error,
-        bool generators = true)
+    public static ProjectCompilation? Create(string root, CompileOptions options, out string error)
     {
         error = string.Empty;
         var files = SourceFiles.Enumerate(root).ToList();
@@ -126,7 +123,7 @@ public static class CompilationFactory
                 deterministic: true));
 
         //界面那类项目有一批成员是生成器现产的 不先跑一遍整片源码都报找不到名字
-        var generated = generators ? RunGenerators(root, compilation, parseOptions) : compilation;
+        var generated = RunGenerators(root, compilation, parseOptions);
         return new ProjectCompilation(generated, parseOptions, files, referencePaths);
     }
 
@@ -205,6 +202,24 @@ public static class CompilationFactory
         //还原出来的包程序集 直接扫落点 一个包一层
         foreach (var path in PackageResolver.Assemblies(root))
             paths.Add(path);
+
+        //项目配置里声明的两类引用 直接给的 dll 与别的工程的产物
+        //没配的项目走到这里就是空 与原先一样
+        var config = NcProject.TryFind(root, out _);
+        if (config is not null)
+        {
+            foreach (var pattern in config.FileReferences)
+            {
+                foreach (var file in PathPattern.Match(root, pattern))
+                {
+                    if (file.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                        paths.Add(file);
+                }
+            }
+
+            foreach (var product in ProjectReferences.Products(root, config))
+                paths.Add(product);
+        }
 
         return paths.ToList();
     }

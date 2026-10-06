@@ -241,9 +241,33 @@ internal static class UpgradeTool
             case "Reference":
                 if (include.Contains("libs", StringComparison.OrdinalIgnoreCase)
                     || include.Contains("kernel", StringComparison.OrdinalIgnoreCase))
-                    migration.Handled.Add($"<Reference Include=\"{include}\"> (ncm references Build\\kernel automatically)");
-                else
-                    migration.Unhandled.Add($"<Reference Include=\"{include}\">");
+                {
+                    migration.Handled.Add(
+                        $"<Reference Include=\"{include}\"> (ncm references Build\\kernel automatically, list anything else in that folder under <References>)");
+                    return;
+                }
+
+                //带 HintPath 的按 HintPath 走 那才是 dll 真正的位置
+                var file = HintPath(item);
+                var path = file.Length > 0 ? file : include;
+                if (string.IsNullOrWhiteSpace(path))
+                {
+                    migration.Unhandled.Add("<Reference> without a path or a HintPath");
+                    return;
+                }
+
+                migration.Files.Add(path);
+                migration.Migrated.Add($"File {path}");
+                return;
+            case "ProjectReference":
+                if (string.IsNullOrWhiteSpace(include))
+                {
+                    migration.Unhandled.Add("<ProjectReference> without a path");
+                    return;
+                }
+
+                migration.Projects.Add(include);
+                migration.Migrated.Add($"Project {include}");
                 return;
             case "EmbeddedResource":
                 if (IsManifestOrIcon(include) || IsManifestOrIcon(LogicalName(item)))
@@ -315,6 +339,16 @@ internal static class UpgradeTool
             root.Add(packages);
         }
 
+        if (migration.Files.Count > 0 || migration.Projects.Count > 0)
+        {
+            var references = new XElement("References");
+            foreach (var include in migration.Files)
+                references.Add(new XElement("File", new XAttribute("Include", include)));
+            foreach (var include in migration.Projects)
+                references.Add(new XElement("Project", new XAttribute("Include", include)));
+            root.Add(references);
+        }
+
         if (migration.Friends.Count > 0)
         {
             var friends = new XElement("InternalsVisibleTo");
@@ -373,6 +407,10 @@ internal static class UpgradeTool
         => (string?)item.Attribute("LogicalName")
             ?? item.Elements().FirstOrDefault(element => Folded(element, "LogicalName"))?.Value.Trim()
             ?? string.Empty;
+
+    //HintPath 程序集引用写明的实际位置 没写返回空
+    private static string HintPath(XElement item)
+        => item.Elements().FirstOrDefault(element => Folded(element, "HintPath"))?.Value.Trim() ?? string.Empty;
 
     //IsManifestOrIcon 这条资源是不是清单或图标 那两样 ncm 自己会嵌
     private static bool IsManifestOrIcon(string value)
@@ -438,6 +476,12 @@ internal static class UpgradeTool
 
         //AvaloniaResources 要打进资源包的模式
         public List<string> AvaloniaResources { get; } = [];
+
+        //Files 要直接当编译引用的 dll
+        public List<string> Files { get; } = [];
+
+        //Projects 要引用其产物的其他工程
+        public List<string> Projects { get; } = [];
 
         //Migrated 真迁过去的
         public List<string> Migrated { get; } = [];

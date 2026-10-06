@@ -208,7 +208,7 @@ public sealed class NcProject
     private NcProject(string path, bool overrides, NcCheck check, NcBuild build,
         IReadOnlyList<NcPackage> packages, IReadOnlyList<NcTask> tasks, NcServer server, NcClient client,
         NcSource? sources, NcTemplate? template, IReadOnlyList<string> friends, IReadOnlyList<string> deploy,
-        IReadOnlyList<string> resources)
+        IReadOnlyList<string> resources, IReadOnlyList<string> files, IReadOnlyList<string> projects)
     {
         Path = path;
         Directory = System.IO.Path.GetDirectoryName(path)!;
@@ -224,6 +224,8 @@ public sealed class NcProject
         InternalsVisibleTo = friends;
         DeployTargets = deploy;
         AvaloniaResources = resources;
+        FileReferences = files;
+        ProjectReferences = projects;
     }
 
     //Path 配置文件的完整路径
@@ -267,6 +269,12 @@ public sealed class NcProject
 
     //AvaloniaResources 要打进 !AvaloniaResources 的资源模式 相对项目根
     public IReadOnlyList<string> AvaloniaResources { get; }
+
+    //FileReferences 直接当编译引用的 dll 模式 相对项目根 支持通配
+    public IReadOnlyList<string> FileReferences { get; }
+
+    //ProjectReferences 要引用其产物的其他工程 相对项目根 可指目录也可指工程文件
+    public IReadOnlyList<string> ProjectReferences { get; }
 
     //TryFind 从指定目录起逐级向上找配置文件 找不到返回 null
     //error 非空表示找到了但读不动 与压根没有是两回事
@@ -361,54 +369,6 @@ public sealed class NcProject
         return true;
     }
 
-    //RemovePackage 从配置里去掉一条包依赖 返回是否成功
-    //只碰 <Packages> 那一块 其余节点原样保留
-    public bool RemovePackage(string id, out string error)
-    {
-        error = string.Empty;
-        XDocument document;
-        try
-        {
-            document = XDocument.Load(Path);
-        }
-        catch (XmlException e)
-        {
-            error = $"{Path} is not valid xml: {e.Message}";
-            return false;
-        }
-
-        var root = document.Root;
-        if (root is null)
-        {
-            error = $"{Path} has no root element";
-            return false;
-        }
-
-        var packages = root.Elements().FirstOrDefault(element => Folded(element.Name.LocalName, "Packages"));
-        var existing = packages?.Elements().FirstOrDefault(element => Folded(element.Name.LocalName, "Package")
-            && string.Equals((string?)element.Attribute("Id"), id, StringComparison.OrdinalIgnoreCase));
-
-        if (existing is null)
-        {
-            error = $"{id} is not declared in {Path}";
-            return false;
-        }
-
-        existing.Remove();
-
-        try
-        {
-            XmlFile.Save(Path, document);
-        }
-        catch (IOException e)
-        {
-            error = $"cannot write {Path}: {e.Message}";
-            return false;
-        }
-
-        return true;
-    }
-
     //FindTask 按名字精确找一个能用的任务 大小写敏感 没有返回 null
     //被内置工具挡掉的任务不在这里 调用方拿不到也就执行不了
     public NcTask? FindTask(string name)
@@ -470,6 +430,8 @@ public sealed class NcProject
         var friends = new List<string>();
         var deploy = new List<string>();
         var resources = new List<string>();
+        var files = new List<string>();
+        var projects = new List<string>();
 
         foreach (var element in root.Elements())
         {
@@ -496,12 +458,36 @@ public sealed class NcProject
                 deploy.AddRange(Split((string?)element.Attribute("To"), ';'));
             else if (Folded(name, "AvaloniaResources"))
                 ReadResources(element, path, resources);
+            else if (Folded(name, "References"))
+                ReadReferences(element, path, files, projects);
             else
                 Warn($"unknown element <{name}> in {path}, ignored");
         }
 
         return new NcProject(path, overrides, check, build, packages, tasks, server, client, sources,
-            template, friends, deploy, resources);
+            template, friends, deploy, resources, files, projects);
+    }
+
+    //ReadReferences 读 <References> 下两类引用
+    //File 是直接给的 dll 或模式 Project 是另一个工程 两种都相对项目根
+    private static void ReadReferences(XElement parent, string path, List<string> files, List<string> projects)
+    {
+        foreach (var element in parent.Elements())
+        {
+            var include = (string?)element.Attribute("Include") ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(include))
+            {
+                Warn($"a <{element.Name.LocalName}> under <References> in {path} has no Include, skipped");
+                continue;
+            }
+
+            if (Folded(element.Name.LocalName, "File"))
+                files.Add(include);
+            else if (Folded(element.Name.LocalName, "Project"))
+                projects.Add(include);
+            else
+                Warn($"unknown element <{element.Name.LocalName}> under <References> in {path}, ignored");
+        }
     }
 
     //ReadFriends 读 <InternalsVisibleTo> 下每个要开放内部成员的程序集

@@ -18,7 +18,6 @@ public static class Program
         InitTool.Register();
         TemplateTool.Register();
         AddTool.Register();
-        RemoveTool.Register();
         RestoreTool.Register();
         BuildTool.Register();
         CleanTool.Register();

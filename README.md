@@ -37,7 +37,6 @@ ncm template example <api>      # write an example for an API type
 ncm template tui                # terminal panel: grade the api usage of the current project
 ncm template gui                # the same catalog and grading in a window
 ncm add nuget <id> [version]    # declare a package dependency in the .ncproj
-ncm remove nuget <id>           # drop a package dependency, reporting leftover references
 ncm restore                     # resolve the declared packages into Build/packages/
 ncm build                       # diagnose, then build
 ncm clean [--all]               # drop the build cache, --all drops the downloads as well
@@ -89,15 +88,6 @@ Declare a dependency in the project config. The change is written back to the `.
 | `nuget <id> [version]` | Add a nuget package, the version takes the same syntax as `dotnet add package` |
 | `mod <id> [version]` | Add a mod dependency, not implemented yet |
 
-### `remove`
-
-Drop a dependency from the project config and clear its copy under `Build`. The project is then assembled with Roslyn and every symbol is resolved, so a source file still using a type from that package is reported. The check goes by the assembly a symbol actually comes from rather than by name, so a type of the same name declared in the project itself is never mistaken for one of the package.
-
-| Parameter | Description |
-|---|---|
-| `nuget <id>` | Remove a nuget package |
-| `mod <id>` | Remove a mod dependency, not implemented yet |
-
 ### `restore`
 
 Resolve the `<Packages>` declared in the project config and copy their assemblies and build files into the project, under `Build/packages` and `Build/targets`. `build` runs the same step on its own, so this is only needed when the restored files are wanted without a build.
@@ -108,7 +98,7 @@ Resolve the `<Packages>` declared in the project config and copy their assemblie
 
 ### `build`
 
-Diagnose and build the mod project in the current directory. The kernel reference assemblies under `Build/kernel` and the declared packages are laid down first, whatever is already there is kept, and only the missing files are fetched. Then the project is compiled, the build targets the packages ship are run, and the result is deployed.
+Diagnose and build the mod project in the current directory. The kernel reference assemblies under `Build/kernel` and the declared packages are laid down first, whatever is already there is kept, and only the missing files are fetched. Referenced projects are built too and their output joins the compile references. Then the project is compiled, the build targets the packages ship are run, and the result is deployed.
 
 | Parameter | Description |
 |---|---|
@@ -183,6 +173,10 @@ Everything the build needs at build time lives under `Build`: `Build/kernel` hol
   <Packages>
     <Package Id="Newtonsoft.Json" Version="13.0.3" />
   </Packages>
+  <References>
+    <File Include="libs/**.dll" />
+    <Project Include="../SharedLib" />
+  </References>
   <Server Cache="cache" Args="--nogui" Debug="false" />
   <Client Version="26.2" Jar="https://example.com/client.jar" Args="--username dev" />
   <Sources Url="https://example.com/kernel/" Index="index.txt" Format="sha256-lines" />
@@ -207,6 +201,7 @@ Everything the build needs at build time lives under `Build`: `Build/kernel` hol
 | `Check` | `LangVersion` — the C# version used for the api and syntax checks |
 | `Build` | `AssemblyName`, `Configuration`, `Output`, `Nullable`, `ImplicitUsings`, `DefineConstants`, `ExtraArgs` |
 | `Packages` | one `Package` per dependency with `Id` and an optional `Version`, the version range syntax matches NuGet |
+| `References` | `File` — a dll path or pattern, `*`, `?` and `**` work as wildcards; `Project` — the directory or the project file of another project, ncproj or csproj. Both are resolved relative to the project root and only used as compile references, never embedded into the mod nor deployed. A referenced project is built first, so its output is up to date |
 | `Server` | `Cache` — where the runtime files are cached, `Args` — extra server arguments, `Debug` — always run in debug mode |
 | `Client` | `Version` — the client jar to fetch, `Jar` — a direct download url instead of the version manifest, `Args` — extra client arguments |
 | `Sources` | `Url` — where the kernel is fetched from, used as it stands so a mirror prefix can be glued in front, `Index` — the manifest file name, `Format` — `sha256-lines`, `plain` or `regex`, `Pattern` — the two capture groups, hash then path, of the regex form |

@@ -137,18 +137,28 @@ internal static class BuildTool
         return CollectOutput(root, configuration);
     }
 
-    //Prepare 备齐直编要用的两样东西 内核程序集与声明的包
-    //两样都按需补 已经就位的直接跳过 不联网也不重下
+    //Prepare 备齐直编要用的东西 内核程序集 声明的包 工程引用的产物
+    //都按需补 已经就位的直接跳过 不联网也不重下
     private static bool Prepare(string root, NcProject config)
     {
         if (!KernelStore.Sync(root, config))
             return false;
 
-        if (RestoreTool.Ensure(config, RestoreTool.DirectoryOf(config), out var error))
+        if (!RestoreTool.Ensure(config, RestoreTool.DirectoryOf(config), out var error))
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"error: {error}");
+            Console.ResetColor();
+            return false;
+        }
+
+        //工程引用这一趟解析一遍 后面直编与检查都从缓存里取
+        ProjectReferences.Clear();
+        if (ProjectReferences.Build(root, config, out var referenceError))
             return true;
 
         Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine($"error: {error}");
+        Console.WriteLine($"error: {referenceError}");
         Console.ResetColor();
         return false;
     }
