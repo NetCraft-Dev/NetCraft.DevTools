@@ -111,7 +111,7 @@ Diagnose and build the mod project in the current directory. The kernel referenc
 | `-c`, `--configuration <name>` | Build configuration, defaults to `Release` |
 | `--no-check` | Skip the api and syntax checks and run `dotnet build` directly |
 | `--check-only` | Run the api and syntax checks only, build nothing |
-| `--no-manifest` | Skip the `ncmod.json` lookup, treat the current directory as a plain C# project (must contain a csproj) |
+| `--no-manifest` | Skip the `ncmod.json` lookup, treat the current directory as a plain C# project (must contain a csproj). Its assembly, project and package references are resolved through msbuild, restoring it first when needed |
 
 ### `clean`
 

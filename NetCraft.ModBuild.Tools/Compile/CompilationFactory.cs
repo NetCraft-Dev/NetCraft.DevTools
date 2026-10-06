@@ -220,6 +220,13 @@ public static class CompilationFactory
             foreach (var product in ProjectReferences.Products(root, config))
                 paths.Add(product);
         }
+        //没有 ncproj 就按普通 csproj 走 它那三类引用交给 msbuild 求值
+        //--no-manifest 检查一个 csproj 项目走的就是这条路
+        else
+        {
+            foreach (var path in CsprojReferences.Assemblies(root))
+                paths.Add(path);
+        }
 
         return paths.ToList();
     }

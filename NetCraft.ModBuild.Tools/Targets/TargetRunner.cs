@@ -143,7 +143,7 @@ internal static class TargetRunner
 
     //Sdks 让引擎找得到本机 sdk 少了它 Sdk 属性那句没法求值
     //扩展路径也要一起指过去 sdk 根下才有 Current\Microsoft.Common.props
-    private static void Sdks()
+    internal static void Sdks()
     {
         var sdk = MsBuildLibrary.SdkDirectory;
         if (sdk is null)
