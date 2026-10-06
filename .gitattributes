@@ -1,5 +1,5 @@
-# shell 脚本必须 LF 否则 Linux 与 macOS 上带进来回车符会直接报错
+
 *.sh text eol=lf
 
-# PowerShell 脚本按 Windows 习惯走 CRLF
+
 *.ps1 text eol=crlf
