@@ -9,13 +9,10 @@ namespace NetCraft.ModBuild.Core;
 internal readonly record struct ClientJarFile(string Url, long Size, string Sha1);
 
 //ClientStore 原版客户端 jar 的本地缓存
-//版本号从内核的 SharedConstants 里读 下到的 jar 留在程序根目录的 Client/<版本>/ 下
+//版本号从内核的 SharedConstants 里读 下到的 jar 留在用户目录的缓存里
 //首次开服要靠它提 assets 之后的启动就不必再给了
 public static class ClientStore
 {
-    //DirectoryName 缓存目录名
-    private const string DirectoryName = "Client";
-
     //Mirror 镜像站 官方几个域名都换到它上面 国内直连官方太慢
     private const string Mirror = "https://bmclapi2.bangbang93.com";
 
@@ -40,8 +37,8 @@ public static class ClientStore
         ("https://launchermeta.mojang.com", Mirror),
     ];
 
-    //Root 缓存目录 程序根目录下的 Client
-    public static string Root => Path.Combine(AppContext.BaseDirectory, DirectoryName);
+    //Root 缓存目录 用户目录下的 Client 换 ncm 版本不受影响
+    public static string Root => CacheLayout.Client;
 
     //ConfiguredVersion 配置里指定的 jar 版本 空表示照内核版本走
     private static string ConfiguredVersion { get; set; } = string.Empty;

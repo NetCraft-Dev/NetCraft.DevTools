@@ -1,12 +1,9 @@
 namespace NetCraft.ModBuild.Core;
 
 //TemplateStore 模板资产的本地缓存
-//目录落在程序根目录 清单只有本地没有时才联网 示例文件同样缓存优先
+//目录落在用户目录的缓存里 清单只有本地没有时才联网 示例文件同样缓存优先
 public static class TemplateStore
 {
-    //DirectoryName 缓存目录名
-    private const string DirectoryName = "Template";
-
     //CatalogFileName 清单文件名
     public const string CatalogFileName = "NetCraftTemplate.yaml";
 
@@ -27,8 +24,8 @@ public static class TemplateStore
     //静态是因为一次只跑一条命令 值在进工具时定下就不再变
     public static bool Refresh { get; set; }
 
-    //Root 缓存目录 程序根目录下的 Template
-    public static string Root => Path.Combine(AppContext.BaseDirectory, DirectoryName);
+    //Root 缓存目录 用户目录下的 Template 换 ncm 版本不受影响
+    public static string Root => CacheLayout.Template;
 
     //CatalogPath 清单的本地路径
     public static string CatalogPath => Path.Combine(Root, CatalogFileName);

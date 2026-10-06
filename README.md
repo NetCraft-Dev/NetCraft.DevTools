@@ -115,11 +115,13 @@ Diagnose and build the mod project in the current directory. The kernel referenc
 
 ### `clean`
 
-Remove the build cache of the current project, which is `Build` in it. The next build lays it down again.
+In a project this removes its build cache, `Build`, and leaves the downloads alone: the next build lays it down again. Outside a project the only thing there is to remove is the shared download cache, so ncm says where it is and how big it is and asks first.
+
+Everything ncm downloads lives in one shared cache under the user directory — `%LOCALAPPDATA%\NetCraft\ncm` on Windows, `~/.local/share/NetCraft/ncm` on Linux, `~/Library/Application Support/NetCraft/ncm` on macOS. Updating or reinstalling ncm leaves it alone, and every project on the machine reuses the same copy.
 
 | Parameter | Description |
 |---|---|
-| `--all` | Also remove the downloaded package cache and the kernel cache |
+| `--all` | Remove the whole download cache without asking: the client jar, the server runtime, the template files and the packages. In a project the build cache goes as well |
 
 ### `runserver`
 
@@ -214,7 +216,7 @@ Everything the build needs at build time lives under `Build`: `Build/kernel` hol
 | `Build` | `AssemblyName`, `Configuration`, `Output`, `OutputType` — `Library` (the default) or `Exe`, a plain compilation choice, ncm writes neither an apphost nor a runtimeconfig, `RootNamespace` — used as the default prefix of embedded resource names, `Nullable`, `ImplicitUsings`, `DefineConstants`, `ExtraArgs` |
 | `Packages` | one `Package` per dependency with `Id` and an optional `Version`, the version range syntax matches NuGet |
 | `References` | `File` — a dll path or pattern, `*`, `?` and `**` work as wildcards; `Project` — the directory or the project file of another project, ncproj or csproj. Both are resolved relative to the project root and only used as compile references, never embedded into the mod nor deployed. A referenced project is built first, so its output is up to date |
-| `Server` | `Cache` — where the runtime files are cached, `Args` — extra server arguments, `Debug` — always run in debug mode |
+| `Server` | `Cache` — where the runtime files are cached, the shared download cache by default, `Args` — extra server arguments, `Debug` — always run in debug mode |
 | `Client` | `Version` — the client jar to fetch, `Jar` — a direct download url instead of the version manifest, `Args` — extra client arguments |
 | `Sources` | `Url` — where the kernel is fetched from, used as it stands so a mirror prefix can be glued in front, `Index` — the manifest file name, `Format` — `sha256-lines`, `plain` or `regex`, `Pattern` — the two capture groups, hash then path, of the regex form |
 | `Template` | `Url` — where the template catalog is fetched from, `Base` — the base the example files are pulled from, replacing the one written in the catalog; either may be left out, and both take a mirror prefix the same way `Sources` does |

@@ -1,24 +1,23 @@
-using NetCraft.ModBuild.Compile;
 using NetCraft.ModBuild.Core;
 
 namespace NetCraft.ModBuild.Tools;
 
 //CleanTool 清掉构建缓存
-//默认只清项目里的 Build 想连下载缓存一起清就带 --all
+//项目里默认只清 Build 不在项目里就只有共享下载缓存可清 删之前问一句
 internal static class CleanTool
 {
-    //AllOption 连下载下来的缓存一起清
+    //AllOption 项目里连下载缓存一起清 不在项目里跳过那一问
     private const string AllOption = "--all";
 
     //Register 把本工具登记进注册表 名字说明与参数都写在这一行
     public static void Register()
-        => ToolRegistry.Register("clean", "Remove the build cache of the current project", Run,
+        => ToolRegistry.Register("clean", "Remove the project build cache, or the shared download cache when there is no project here", Run,
         [
-            new(AllOption, "Also remove the downloaded package cache and the kernel cache"),
+            new(AllOption, "Remove the whole shared download cache without asking: the client jar, the server runtime, the template files and the packages"),
         ]);
 
-    //Run 先清项目里那份 带了 --all 再清下载缓存
-    //清掉的东西下次构建会重新备 所以默认不动下载缓存 联网重下不值当
+    //Run 项目里清项目那份 不在项目里清共享那份并先问一句
+    //清掉的东西下次构建会重新备 所以项目里默认不动下载缓存 联网重下不值当
     private static int Run(string[] args)
     {
         foreach (var arg in args)
@@ -38,21 +37,69 @@ internal static class CleanTool
             return 1;
         }
 
+        var all = args.Contains(AllOption);
         var freed = 0L;
+
         if (project is not null)
+        {
             freed += Remove(Path.Combine(project.Directory, ProjectLayout.Build), "build cache");
 
-        if (args.Contains(AllOption))
+            if (all)
+                freed += RemoveDownloads(project);
+        }
+        //不在项目里 能清的只有共享缓存 问一句再动手
+        else if (all || AskDownloads())
         {
-            freed += Remove(PackageResolver.CacheRoot, "package cache");
-
-            ServerStore.Configure(project);
-            freed += Remove(ServerStore.Root, "kernel cache");
+            freed += RemoveDownloads(project);
+        }
+        else
+        {
+            Console.WriteLine("Nothing removed");
         }
 
         Console.WriteLine($"Freed {freed / 1024.0 / 1024.0:F1} MB");
         return 0;
     }
+
+    //AskDownloads 问一句要不要清共享缓存 提示里带上位置与占用
+    //输入被重定向时没人应答 那就只把该怎么做说清楚 不擅自删
+    private static bool AskDownloads()
+    {
+        if (!Directory.Exists(CacheLayout.Root))
+        {
+            Console.WriteLine($"No project here and the shared download cache at {CacheLayout.Root} is already empty");
+            return false;
+        }
+
+        var size = Size(CacheLayout.Root) / 1024.0 / 1024.0;
+        if (Console.IsInputRedirected)
+        {
+            Console.WriteLine($"No project here, the shared download cache at {CacheLayout.Root} is {size:F1} MB, pass {AllOption} to remove it");
+            return false;
+        }
+
+        Console.WriteLine($"No project here, the shared download cache at {CacheLayout.Root} is {size:F1} MB");
+        return Prompt.Confirm("Remove it?", defaultYes: true, warn: true);
+    }
+
+    //RemoveDownloads 清共享下载缓存 项目把服务端缓存指到别处时那一份也一起
+    private static long RemoveDownloads(NcProject? project)
+    {
+        var freed = Remove(CacheLayout.Root, "download cache");
+
+        ServerStore.Configure(project);
+        if (!SamePath(ServerStore.Root, CacheLayout.Server))
+            freed += Remove(ServerStore.Root, "server cache");
+
+        return freed;
+    }
+
+    //SamePath 两个路径是不是同一处 大小写与末尾斜杠都不计较
+    private static bool SamePath(string left, string right)
+        => string.Equals(
+            Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+            StringComparison.OrdinalIgnoreCase);
 
     //Remove 删一个目录 返回释放的字节数
     private static long Remove(string directory, string what)

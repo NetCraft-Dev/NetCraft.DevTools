@@ -4,28 +4,43 @@ namespace NetCraft.ModBuild.Diagnostics;
 internal static class Similarity
 {
     //Closest 在候选里挑最接近的那个 没有够近的算瞎猜 返回 null
-    //bound 之外的差太远 列出来只会把人带偏
+    //先看以输入打头的那批 少打几个字母是最常见的写法 命中了就不必再比拼写
+    //没有再按编辑距离挑最像的 bound 之外的差太远 列出来只会把人带偏
     public static string? Closest(string name, IEnumerable<string> candidates, int? bound = null)
     {
+        var pool = candidates
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate)
+                && !string.Equals(candidate, name, StringComparison.Ordinal))
+            .ToList();
+
+        //前缀命中取最短的那个 短的离整名更近
+        var prefixed = pool.Where(candidate => IsPrefix(name, candidate))
+            .OrderBy(candidate => candidate.Length)
+            .ThenBy(candidate => candidate, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+        if (prefixed is not null)
+            return prefixed;
+
         var limit = bound ?? Math.Max(2, name.Length / 2);
         string? best = null;
         var bestDistance = int.MaxValue;
 
-        foreach (var candidate in candidates)
+        foreach (var candidate in pool)
         {
-            if (string.IsNullOrWhiteSpace(candidate) || candidate == name)
+            var distance = Distance(name, candidate);
+            if (distance >= bestDistance || distance > limit)
                 continue;
 
-            var distance = Distance(name, candidate);
-            if (distance < bestDistance)
-            {
-                bestDistance = distance;
-                best = candidate;
-            }
+            bestDistance = distance;
+            best = candidate;
         }
 
-        return bestDistance <= limit ? best : null;
+        return best;
     }
+
+    //IsPrefix 名字是不是候选的缩写式开头 单字符太宽 一律不算
+    private static bool IsPrefix(string name, string candidate)
+        => name.Length >= 2 && candidate.StartsWith(name, StringComparison.OrdinalIgnoreCase);
 
     //Rank 把候选按接近程度排好 取前几个
     public static List<string> Rank(string name, IEnumerable<string> candidates, int take, int? bound = null)

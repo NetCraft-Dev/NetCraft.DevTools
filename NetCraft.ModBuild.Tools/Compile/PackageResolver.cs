@@ -16,7 +16,7 @@ namespace NetCraft.ModBuild.Compile;
 public static class PackageResolver
 {
     //Root ncm 自己那份包缓存 全局缓存里没命中的包下到这里 下次不必再下
-    private static string Root => Path.Combine(AppContext.BaseDirectory, "packages");
+    private static string Root => CacheLayout.Packages;
 
     //CacheRoot ncm 自己那份包缓存 清理时要用
     public static string CacheRoot => Root;

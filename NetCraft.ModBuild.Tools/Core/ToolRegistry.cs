@@ -34,4 +34,14 @@ public static class ToolRegistry
     //Find 按名字找工具 没有返回 null
     public static ToolEntry? Find(string name)
         => Entries.FirstOrDefault(entry => string.Equals(entry.Name, name, StringComparison.OrdinalIgnoreCase));
+
+    //SubCommandsOf 参数表里那些子命令 view example 这种
+    //尖括号方括号开头的是位置参数 横杠开头的是选项 两种都不算子命令
+    public static List<string> SubCommandsOf(ToolEntry tool)
+        => tool.Parameters
+            .Select(parameter => parameter.Syntax.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault())
+            .Where(word => !string.IsNullOrEmpty(word) && char.IsLetter(word[0]))
+            .Select(word => word!)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 }

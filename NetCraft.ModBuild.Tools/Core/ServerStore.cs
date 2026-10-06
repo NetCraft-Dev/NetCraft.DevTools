@@ -10,14 +10,11 @@ namespace NetCraft.ModBuild.Core;
 internal readonly record struct ServerFile(string Path, string Hash);
 
 //ServerStore 服务端运行时文件的本地缓存
-//目录落在程序根目录 本地齐备就不联网 缺哪个补哪个 每个文件给几次重试
+//目录落在用户目录的缓存里 本地齐备就不联网 缺哪个补哪个 每个文件给几次重试
 //只有 Refresh 那条路会按哈希比对 它会让内容对不上的文件重下
 //缓存位置与来源都能被项目配置改写 见 Configure
 public static class ServerStore
 {
-    //DirectoryName 默认缓存目录名
-    private const string DirectoryName = "Server";
-
     //DefaultIndexFileName 默认清单文件名 一行一条 哈希与相对路径之间两个空格
     private const string DefaultIndexFileName = "index.txt";
 
@@ -37,8 +34,8 @@ public static class ServerStore
 
     private static Regex? Matcher { get; set; }
 
-    //Root 缓存目录 程序根目录下的 Server 配置里指定了就按配置来
-    public static string Root { get; private set; } = Path.Combine(AppContext.BaseDirectory, DirectoryName);
+    //Root 缓存目录 用户目录下的 Server 配置里指定了就按配置来
+    public static string Root { get; private set; } = CacheLayout.Server;
 
     //IndexFileName 清单文件名
     public static string IndexFileName { get; private set; } = DefaultIndexFileName;
