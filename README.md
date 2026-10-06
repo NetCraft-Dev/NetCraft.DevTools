@@ -37,6 +37,8 @@ ncm template example <api>      # write an example for an API type
 ncm template tui                # terminal panel: grade the api usage of the current project
 ncm template gui                # the same catalog and grading in a window
 ncm add nuget <id> [version]    # declare a package dependency in the .ncproj
+ncm add file <path>             # declare a managed dll as a compile reference
+ncm add project <path>          # reference another project, built first, used as a compile reference
 ncm restore                     # resolve the declared packages into Build/packages/
 ncm build                       # diagnose, then build
 ncm clean [--all]               # drop the build cache, --all drops the downloads as well
@@ -81,12 +83,16 @@ Browse and pull mod templates.
 
 ### `add`
 
-Declare a dependency in the project config. The change is written back to the `.ncproj`.
+Declare a dependency or a reference in the project config. The change is written back to the `.ncproj`.
 
 | Parameter | Description |
 |---|---|
 | `nuget <id> [version]` | Add a nuget package, the version takes the same syntax as `dotnet add package` |
+| `file <path>` | Add a managed dll as a compile reference, written as a `<File>` under `<References>` |
+| `project <path>` | Add another project as a compile reference, written as a `<Project>` under `<References>` |
 | `mod <id> [version]` | Add a mod dependency, not implemented yet |
+
+`file` and `project` take a path relative to the current directory and store it relative to the project root.
 
 ### `restore`
 
@@ -191,6 +197,8 @@ Everything the build needs at build time lives under `Build`: `Build/kernel` hol
   <Tasks>
     <Task Name="release" Description="build and pack" Depends="check">
       <Exec>ncm build</Exec>
+      <Copy From="Build/*.dll" To="dist/" />
+      <Zip From="dist" To="dist/$(ModId)-$(ModVersion).zip" />
     </Task>
   </Tasks>
 </ncproj>
@@ -209,7 +217,7 @@ Everything the build needs at build time lives under `Build`: `Build/kernel` hol
 | `InternalsVisibleTo` | one `Assembly` per friend assembly with `Name`, emitted as `[assembly: InternalsVisibleTo]` |
 | `AvaloniaResources` | one `Resource` per pattern with `Include`, packed into the `!AvaloniaResources` resource the Avalonia asset loader reads; every `*.axaml` of the project is picked up as well, so only plain assets have to be listed |
 | `Deploy` | `To` — semicolon separated directories the built dll is copied into right after a successful build |
-| `Tasks` | one `Task` per task with `Name`, `Description`, `Depends` and `Override`, holding `Exec` steps |
+| `Tasks` | one `Task` per task with `Name`, `Description`, `Depends` and `Override`, holding `Exec` steps that run a command line, `Copy` steps that take `From` and `To`, and `Zip` steps that pack the `From` directory into the `To` file. `$(Configuration)`, `$(ProjectDir)`, `$(ModId)`, `$(ModName)`, `$(ModVersion)` and `$(env:NAME)` are substituted in every attribute |
 | root | `Override` — the default for tasks that do not carry their own |
 
 ## License

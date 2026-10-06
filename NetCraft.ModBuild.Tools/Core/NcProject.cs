@@ -158,21 +158,76 @@ public sealed class NcTemplate
     public string Base { get; }
 }
 
+//NcStepKind 任务步骤的种类
+public enum NcStepKind
+{
+    //Exec 跑一条命令行
+    Exec,
+
+    //Copy 把匹配到的文件复制过去
+    Copy,
+
+    //Zip 把一个目录压成 zip
+    Zip,
+}
+
+//NcStep 任务里的一个步骤
+//Exec 用 Command 另两种用 From 与 To 用不到的字段留空
+public sealed class NcStep
+{
+    private NcStep(NcStepKind kind, string command, string from, string to)
+    {
+        Kind = kind;
+        Command = command;
+        From = from;
+        To = to;
+    }
+
+    //Exec 一条命令行
+    public static NcStep Exec(string command) => new(NcStepKind.Exec, command, string.Empty, string.Empty);
+
+    //Copy 一组文件复制到目标
+    public static NcStep Copy(string from, string to) => new(NcStepKind.Copy, string.Empty, from, to);
+
+    //Zip 一个目录压成 zip
+    public static NcStep Zip(string from, string to) => new(NcStepKind.Zip, string.Empty, from, to);
+
+    //Kind 步骤种类
+    public NcStepKind Kind { get; }
+
+    //Command Exec 的命令行
+    public string Command { get; }
+
+    //From 源 相对项目根
+    public string From { get; }
+
+    //To 目标 相对项目根
+    public string To { get; }
+
+    //Text 展示与指纹都用它
+    public string Text => Kind switch
+    {
+        NcStepKind.Copy => $"copy {From} -> {To}",
+        NcStepKind.Zip => $"zip {From} -> {To}",
+        _ => Command,
+    };
+}
+
 //NcTask 项目配置里的一个任务
-//命令按顺序跑 有前置就先把前置跑完
+//步骤按顺序跑 有前置就先把前置跑完
 public sealed class NcTask
 {
     //DefaultDescription 任务没写描述时帮助与列表里显示的占位文案
     public const string DefaultDescription = "Project custom task";
 
     public NcTask(string name, string description, IReadOnlyList<string> depends, bool overrides,
-        IReadOnlyList<string> commands)
+        IReadOnlyList<NcStep> steps)
     {
         Name = name;
         Description = description;
         Depends = depends;
         Overrides = overrides;
-        Commands = commands;
+        Steps = steps;
     }
 
     //Name 任务名 命令行里直接拿它调用
@@ -187,8 +242,8 @@ public sealed class NcTask
     //Overrides 是否允许顶掉同名的内置工具
     public bool Overrides { get; }
 
-    //Commands 按顺序执行的一串命令行
-    public IReadOnlyList<string> Commands { get; }
+    //Steps 按顺序执行的步骤
+    public IReadOnlyList<NcStep> Steps { get; }
 
     //Title 展示用的说明 配置没写就退回默认文案
     public string Title => string.IsNullOrWhiteSpace(Description) ? DefaultDescription : Description;
@@ -367,6 +422,69 @@ public sealed class NcProject
         }
 
         return true;
+    }
+
+    //AddReference 往配置里加一条引用 同类同路径的已经有了就不重复加 返回是否成功
+    //isProject 为真写进 <Project> 否则写进 <File>
+    public bool AddReference(string include, bool isProject, out string error)
+    {
+        error = string.Empty;
+        XDocument document;
+        try
+        {
+            document = XDocument.Load(Path);
+        }
+        catch (XmlException e)
+        {
+            error = $"{Path} is not valid xml: {e.Message}";
+            return false;
+        }
+
+        var root = document.Root;
+        if (root is null)
+        {
+            error = $"{Path} has no root element";
+            return false;
+        }
+
+        var references = root.Elements().FirstOrDefault(element => Folded(element.Name.LocalName, "References"));
+        if (references is null)
+        {
+            references = new XElement("References");
+            root.Add(references);
+        }
+
+        var name = isProject ? "Project" : "File";
+        var relative = ToRelative(include);
+        var existing = references.Elements().FirstOrDefault(element => Folded(element.Name.LocalName, name)
+            && string.Equals((string?)element.Attribute("Include"), relative, StringComparison.OrdinalIgnoreCase));
+
+        if (existing is null)
+            references.Add(new XElement(name, new XAttribute("Include", relative)));
+
+        try
+        {
+            XmlFile.Save(Path, document);
+        }
+        catch (IOException e)
+        {
+            error = $"cannot write {Path}: {e.Message}";
+            return false;
+        }
+
+        return true;
+    }
+
+    //ToRelative 路径折成相对项目根的写法
+    //带通配符的不做绝对化 那串东西本来就不是一个能解析出来的路径
+    private string ToRelative(string include)
+    {
+        var normalized = include.Trim().Replace('\\', '/');
+        if (normalized.IndexOfAny(['*', '?']) >= 0)
+            return normalized.Replace('/', System.IO.Path.DirectorySeparatorChar);
+
+        var absolute = System.IO.Path.GetFullPath(System.IO.Path.Combine(Environment.CurrentDirectory, normalized));
+        return System.IO.Path.GetRelativePath(Directory, absolute);
     }
 
     //FindTask 按名字精确找一个能用的任务 大小写敏感 没有返回 null
@@ -640,28 +758,47 @@ public sealed class NcProject
             var description = (string?)element.Attribute("Description") ?? string.Empty;
             var depends = Split((string?)element.Attribute("Depends"));
             var overrides = ReadBool(element, "Override", globalOverride, path);
-            tasks.Add(new NcTask(name, description, depends, overrides, ReadCommands(element, name, path)));
+            tasks.Add(new NcTask(name, description, depends, overrides, ReadSteps(element, name, path)));
         }
     }
 
-    //ReadCommands 读一个任务里的 <Exec> 步骤
-    //别的步骤类型还没做 见到只提醒一句 不影响这个任务的其他步骤
-    private static List<string> ReadCommands(XElement task, string name, string path)
+    //ReadSteps 读一个任务里的步骤
+    //Exec 取元素文本 Copy 与 Zip 各取 From 与 To 别的类型还没做 见到只提醒一句
+    private static List<NcStep> ReadSteps(XElement task, string name, string path)
     {
-        var commands = new List<string>();
+        var steps = new List<NcStep>();
         foreach (var step in task.Elements())
         {
-            if (!string.Equals(step.Name.LocalName, "Exec", StringComparison.OrdinalIgnoreCase))
+            var kind = step.Name.LocalName;
+            if (string.Equals(kind, "Exec", StringComparison.OrdinalIgnoreCase))
             {
-                Warn($"step <{step.Name.LocalName}> in task {name} is not supported yet, ignored");
+                var text = step.Value.Trim();
+                if (text.Length > 0)
+                    steps.Add(NcStep.Exec(text));
                 continue;
             }
 
-            var text = step.Value.Trim();
-            if (text.Length > 0)
-                commands.Add(text);
+            if (!string.Equals(kind, "Copy", StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(kind, "Zip", StringComparison.OrdinalIgnoreCase))
+            {
+                Warn($"step <{kind}> in task {name} is not supported yet, ignored");
+                continue;
+            }
+
+            var from = (string?)step.Attribute("From") ?? string.Empty;
+            var to = (string?)step.Attribute("To") ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(from) || string.IsNullOrWhiteSpace(to))
+            {
+                Warn($"<{kind}> in task {name} needs both From and To, skipped");
+                continue;
+            }
+
+            steps.Add(string.Equals(kind, "Copy", StringComparison.OrdinalIgnoreCase)
+                ? NcStep.Copy(from, to)
+                : NcStep.Zip(from, to));
         }
-        return commands;
+
+        return steps;
     }
 
     //Split 拆分隔符隔开的属性值 空白与空项都丢掉

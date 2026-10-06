@@ -90,7 +90,7 @@ public static class Help
             Warning(writer, $"task {task.Name} conflicts with a built-in tool name, consider renaming it");
     }
 
-    //WriteTask 打印一个项目任务 说明 前置与每条命令
+    //WriteTask 打印一个项目任务 说明 前置与每个步骤
     private static void WriteTask(TextWriter writer, NcTask task)
     {
         writer.WriteLine($"{task.Name} - {task.Title}");
@@ -101,15 +101,15 @@ public static class Help
         }
 
         writer.WriteLine();
-        if (task.Commands.Count == 0)
+        if (task.Steps.Count == 0)
         {
-            writer.WriteLine("This task has no command.");
+            writer.WriteLine("This task has no step.");
             return;
         }
 
-        writer.WriteLine("Commands:");
-        foreach (var command in task.Commands)
-            writer.WriteLine($"  {command}");
+        writer.WriteLine("Steps:");
+        foreach (var step in task.Steps)
+            writer.WriteLine($"  {step.Text}");
     }
 
     //Warning 黄色警告一行

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -44,20 +45,130 @@ internal static class TaskRunner
         var variables = Variables(project);
         foreach (var current in order)
         {
-            if (current.Commands.Count == 0)
+            if (current.Steps.Count == 0)
                 continue;
 
             Console.WriteLine($"Running task {current.Name}");
-            foreach (var command in current.Commands)
+            foreach (var step in current.Steps)
             {
-                var line = Interpolate(command, variables);
-                Console.WriteLine($"> {line}");
-                if (!Execute(line, project.Directory))
+                if (!Step(step, variables, project.Directory))
                     return 1;
             }
         }
         return 0;
     }
+
+    //Step 跑一个步骤 认不出来的种类在解析那一步就被挡掉了
+    private static bool Step(NcStep step, IReadOnlyDictionary<string, string> variables, string root)
+    {
+        if (step.Kind == NcStepKind.Exec)
+        {
+            var line = Interpolate(step.Command, variables);
+            Console.WriteLine($"> {line}");
+            return Execute(line, root);
+        }
+
+        var from = Interpolate(step.From, variables);
+        var to = Interpolate(step.To, variables);
+        Console.WriteLine($"> {(step.Kind == NcStepKind.Copy ? "copy" : "zip")} {from} -> {to}");
+        return step.Kind == NcStepKind.Copy ? Copy(root, from, to) : Zip(root, from, to);
+    }
+
+    //Copy 把匹配到的文件复制到目标
+    //To 以分隔符收尾 匹配到多个 或已经是个目录时当目录 其余按单个目标文件
+    //目录模式下保留相对模式基准那一层结构 子目录里的同名文件不会互相盖掉
+    private static bool Copy(string root, string from, string to)
+    {
+        var files = PathPattern.Match(root, from).ToList();
+        if (files.Count == 0)
+        {
+            Console.WriteLine($"warning: {from} matched no file, nothing is copied");
+            return true;
+        }
+
+        var target = Path.GetFullPath(Path.Combine(root, to));
+        var asDirectory = EndsWithSeparator(to) || files.Count > 1 || Directory.Exists(target);
+        var source = BaseOf(root, from);
+
+        var copied = 0;
+        foreach (var file in files)
+        {
+            var destination = asDirectory ? Path.Combine(target, Path.GetRelativePath(source, file)) : target;
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                File.Copy(file, destination, overwrite: true);
+                copied++;
+            }
+            catch (IOException e)
+            {
+                Console.WriteLine($"error: cannot copy {file} to {destination}: {e.Message}");
+                return false;
+            }
+        }
+
+        Console.WriteLine($"Copied {copied} file(s) to {target}");
+        return true;
+    }
+
+    //Zip 把源目录整棵压成一个 zip
+    //目标那个文件本身要跳过 常有人把它写在源目录里 上一次留的那份会被卷进去
+    private static bool Zip(string root, string from, string to)
+    {
+        var source = Path.GetFullPath(Path.Combine(root, from));
+        if (!Directory.Exists(source))
+        {
+            Console.WriteLine($"error: {from} is not a directory, nothing is packed");
+            return false;
+        }
+
+        var target = Path.GetFullPath(Path.Combine(root, to));
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            if (File.Exists(target))
+                File.Delete(target);
+
+            using var archive = ZipFile.Open(target, ZipArchiveMode.Create);
+            var entries = 0;
+            foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
+            {
+                if (string.Equals(Path.GetFullPath(file), target, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                archive.CreateEntryFromFile(file, Path.GetRelativePath(source, file).Replace('\\', '/'));
+                entries++;
+            }
+
+            Console.WriteLine($"Packed {entries} file(s) into {target}");
+            return true;
+        }
+        catch (IOException e)
+        {
+            Console.WriteLine($"error: cannot write {target}: {e.Message}");
+            return false;
+        }
+    }
+
+    //BaseOf 模式里通配符之前那一段就是基准 与 PathPattern 取基准的规则一致
+    //算出来好把命中文件折成相对它那一段的路径
+    private static string BaseOf(string root, string from)
+    {
+        var normalized = from.Replace('\\', '/').TrimStart('/');
+        var wildcard = normalized.IndexOfAny(['*', '?']);
+        if (wildcard < 0)
+        {
+            var absolute = Path.GetFullPath(Path.Combine(root, normalized));
+            return Directory.Exists(absolute) ? absolute : Path.GetDirectoryName(absolute)!;
+        }
+
+        var slash = normalized.LastIndexOf('/', wildcard);
+        return slash <= 0 ? root : Path.GetFullPath(Path.Combine(root, normalized[..slash]));
+    }
+
+    //EndsWithSeparator 这个写法是不是在指一个目录
+    private static bool EndsWithSeparator(string value)
+        => value.EndsWith('/') || value.EndsWith('\\');
 
     //Order 按 Depends 把要跑的任务排成一条链 有环或者前置不存在就报错
     private static List<NcTask>? Order(NcProject project, NcTask task, out string error)
@@ -114,6 +225,7 @@ internal static class TaskRunner
         var values = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["ProjectDir"] = project.Directory,
+            ["Configuration"] = project.Build.Configuration,
         };
 
         var manifest = ModProject.TryFind(project.Directory);
@@ -160,8 +272,8 @@ internal static class TaskRunner
         }
 
         Console.WriteLine($"Task {task.Name} overrides the built-in {task.Name} tool:");
-        foreach (var command in task.Commands)
-            Console.WriteLine($"  {command}");
+        foreach (var step in task.Steps)
+            Console.WriteLine($"  {step.Text}");
 
         Console.Write("Run it? [y/N] ");
         var answer = Console.ReadLine();
@@ -176,9 +288,10 @@ internal static class TaskRunner
         return true;
     }
 
-    //Fingerprint 任务内容的指纹 命令变了就不是同一个任务了
+    //Fingerprint 任务内容的指纹 步骤变了就不是同一个任务了
     private static string Fingerprint(NcTask task)
-        => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', task.Commands))));
+        => Convert.ToHexStringLower(
+            SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', task.Steps.Select(step => step.Text)))));
 
     //ApprovalsPath 确认记录的位置
     private static string ApprovalsPath(NcProject project)
