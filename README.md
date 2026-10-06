@@ -117,11 +117,11 @@ Diagnose and build the mod project in the current directory. The kernel referenc
 
 In a project this removes its build cache, `Build`, and leaves the downloads alone: the next build lays it down again. Outside a project the only thing there is to remove is the shared download cache, so ncm says where it is and how big it is and asks first.
 
-Everything ncm downloads lives in one shared cache under the user directory — `%LOCALAPPDATA%\NetCraft\ncm` on Windows, `~/.local/share/NetCraft/ncm` on Linux, `~/Library/Application Support/NetCraft/ncm` on macOS. Updating or reinstalling ncm leaves it alone, and every project on the machine reuses the same copy.
+Everything ncm downloads lives under the user directory — `%LOCALAPPDATA%\NetCraft` on Windows, `~/.local/share/NetCraft` on Linux, `~/Library/Application Support/NetCraft` on macOS. The shared cache sits in `ncm/`, the self-update package and its script in `Update/`. Updating or reinstalling ncm leaves both alone, and every project on the machine reuses the same copy.
 
 | Parameter | Description |
 |---|---|
-| `--all` | Remove the whole download cache without asking: the client jar, the server runtime, the template files and the packages. In a project the build cache goes as well |
+| `--all` | Remove both without asking: the client jar, the server runtime, the template files, the packages and the update package. In a project the build cache goes as well |
 
 ### `runserver`
 
@@ -163,7 +163,7 @@ Convert a csproj based mod project to a `.ncproj` one. What ncm does not underst
 
 ### `update`
 
-Check nuget.org and update ncm to the latest version. Takes no parameters.
+Check nuget.org and update ncm to the latest version. A newer package is downloaded into `Update/` first, then a script there runs `dotnet tool update` against that local copy, so the install itself does not depend on nuget.org being reachable. Takes no parameters.
 
 ## Project config
 

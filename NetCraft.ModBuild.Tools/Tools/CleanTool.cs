@@ -13,7 +13,7 @@ internal static class CleanTool
     public static void Register()
         => ToolRegistry.Register("clean", "Remove the project build cache, or the shared download cache when there is no project here", Run,
         [
-            new(AllOption, "Remove the whole shared download cache without asking: the client jar, the server runtime, the template files and the packages"),
+            new(AllOption, "Remove everything ncm downloaded without asking: the client jar, the server runtime, the template files, the packages and the update package"),
         ]);
 
     //Run 项目里清项目那份 不在项目里清共享那份并先问一句
@@ -65,20 +65,21 @@ internal static class CleanTool
     //输入被重定向时没人应答 那就只把该怎么做说清楚 不擅自删
     private static bool AskDownloads()
     {
-        if (!Directory.Exists(CacheLayout.Root))
+        //更新缓存与下载缓存平级 两边加起来才是 ncm 在用户目录里占的全部
+        var size = (Size(CacheLayout.Root) + Size(CacheLayout.Update)) / 1024.0 / 1024.0;
+        if (!Directory.Exists(CacheLayout.Root) && !Directory.Exists(CacheLayout.Update))
         {
-            Console.WriteLine($"No project here and the shared download cache at {CacheLayout.Root} is already empty");
+            Console.WriteLine($"No project here and everything ncm downloaded under {CacheLayout.Home} is already gone");
             return false;
         }
 
-        var size = Size(CacheLayout.Root) / 1024.0 / 1024.0;
         if (Console.IsInputRedirected)
         {
-            Console.WriteLine($"No project here, the shared download cache at {CacheLayout.Root} is {size:F1} MB, pass {AllOption} to remove it");
+            Console.WriteLine($"No project here, what ncm downloaded under {CacheLayout.Home} takes {size:F1} MB, pass {AllOption} to remove it");
             return false;
         }
 
-        Console.WriteLine($"No project here, the shared download cache at {CacheLayout.Root} is {size:F1} MB");
+        Console.WriteLine($"No project here, what ncm downloaded under {CacheLayout.Home} takes {size:F1} MB");
         return Prompt.Confirm("Remove it?", defaultYes: true, warn: true);
     }
 
@@ -86,6 +87,9 @@ internal static class CleanTool
     private static long RemoveDownloads(NcProject? project)
     {
         var freed = Remove(CacheLayout.Root, "download cache");
+
+        //更新缓存里那份包与脚本留着也没用 下回更新会重下
+        freed += Remove(CacheLayout.Update, "update cache");
 
         ServerStore.Configure(project);
         if (!SamePath(ServerStore.Root, CacheLayout.Server))

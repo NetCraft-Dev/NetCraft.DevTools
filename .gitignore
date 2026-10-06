@@ -11,3 +11,4 @@ obj_v/
 
 # 本地发版脚本 带 nuget 密钥不进仓库
 updata.ps1
+.psctx.json

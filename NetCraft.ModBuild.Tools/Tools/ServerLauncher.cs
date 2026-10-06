@@ -6,7 +6,8 @@ using NetCraft.ModBuild.Core;
 namespace NetCraft.ModBuild.Tools;
 
 //ServerLauncher 动态加载服务端内核并把它跑起来
-//流程与 NetCraft.ServerExe 一致 区别是内核不再编译期引用 而是按名字从 Server 目录取
+//流程与 NetCraft.ServerExe 一致 区别是内核没有编译期引用 全靠按名字取
+//主库与加载器由这里按路径载入 其余内核程序集走内核自己的解析回调 服务端那层不自己载
 internal static class ServerLauncher
 {
     //KernelDirectoryName 内核程序集子目录名 与内核那边的约定对齐
@@ -36,14 +37,14 @@ internal static class ServerLauncher
 
         Directory.SetCurrentDirectory(run);
 
-        //主库先起来 内核加载器与程序根都要在别的内核程序集被解析之前定好
+        //主库先起来 内嵌解析回调与程序根都要在别的内核程序集被解析之前定好
         var main = Load(Path.Combine(source, "NetCraft.dll"));
         main.GetType("NetCraft.EmbeddedAssemblyLoader", throwOnError: true)!
             .GetMethod("Initialize")!.Invoke(null, null);
         main.GetType("NetCraft.AppPaths", throwOnError: true)!
             .GetMethod("SetOverride")!.Invoke(null, new object?[] { run });
 
-        //内核程序集留给内核自己的加载器 它那边要过一次模组改写器 这里插手会让注入失效
+        //内核程序集留给内核自己的解析回调 它那边要过一次模组改写器 这里插手会让注入失效
         RegisterResolver(source);
 
         //日志出口要早于模组引导 注入与内核 Initialize 都在那之后 晚一步整段 debug 记录都会丢
@@ -55,8 +56,9 @@ internal static class ServerLauncher
         var environment = loader.GetType("NetCraft.ModLoader.ModEnvironment", throwOnError: true)!;
         bootstrap.GetMethod("Run")!.Invoke(null, new object?[] { Enum.Parse(environment, "Server"), null });
 
-        //服务端启动流程 参数原样交给它
-        var server = Load(Path.Combine(source, ServerAssemblyName + ".dll"));
+        //服务端那层交给内核那套解析 有注入规则时引导已经把它预载成改写版
+        //再按路径载一次会拉出第二份 类型对不上 那一层注入也就白做了
+        var server = AssemblyLoadContext.Default.LoadFromAssemblyName(new AssemblyName(ServerAssemblyName));
         server.GetType("NetCraft.Game.ServerMain", throwOnError: true)!
             .GetMethod("Run")!.Invoke(null, new object?[] { args });
         return 0;
@@ -87,7 +89,7 @@ internal static class ServerLauncher
     //includeModLoader 决定要不要带上加载器 运行目录那边不用它 主库常驻在根上
     //项目里的编译引用要它 模组接口就在那个程序集里
     //根程序集 NetCraft.dll 里也有模组要用的类型 编译引用同样要它
-    //运行目录那边不能放 主库已常驻在根上 再来一份会被内核加载器当成两个
+    //运行目录那边不能放 主库与加载器已由这里载入 再来一份会被当成两个
     internal static void SyncKernel(string source, string destination, bool includeModLoader = false)
     {
         Directory.CreateDirectory(destination);
