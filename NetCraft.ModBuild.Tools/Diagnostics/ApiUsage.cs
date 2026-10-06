@@ -91,7 +91,8 @@ public sealed class ApiUsage
 
         //先把整份源码读进来 项目自己定义的类型要一次收齐
         //边读边扫的话 前面文件引用后面文件定义的类型会被当成清单里没有
-        var sources = new List<(string File, string Text)>(files.Count);
+        //匹配走盖掉注释与字符串的那一份 报位置仍旧拿原始那份 两者下标一一对应
+        var sources = new List<(string File, string Text, string Masked)>(files.Count);
         var defined = new HashSet<string>(StringComparer.Ordinal);
         foreach (var file in files)
         {
@@ -106,15 +107,16 @@ public sealed class ApiUsage
                 continue;
             }
 
-            sources.Add((file, text));
-            foreach (Match declaration in TypeDeclaration.Matches(text))
+            var masked = Mask(text);
+            sources.Add((file, text, masked));
+            foreach (Match declaration in TypeDeclaration.Matches(masked))
                 defined.Add(declaration.Groups[1].Value);
         }
         Trace.Log($"found {defined.Count} type declaration(s) in the project itself");
 
-        foreach (var (file, text) in sources)
+        foreach (var (file, text, masked) in sources)
         {
-            foreach (Match match in pattern.Matches(text))
+            foreach (Match match in pattern.Matches(masked))
             {
                 var type = match.Groups[1].Value;
                 var member = match.Groups[2].Value;
@@ -236,6 +238,121 @@ public sealed class ApiUsage
 
         return text[start..end].TrimEnd('\r');
     }
+
+    //Mask 把注释与字符串盖成空格 换行留着
+    //匹配与报位置都按同一份文本的下标走 盖过之后行列照样对得上
+    private static string Mask(string text)
+    {
+        var buffer = text.ToCharArray();
+        var index = 0;
+
+        while (index < text.Length)
+        {
+            var current = text[index];
+
+            //行注释 盖到行尾
+            if (current == '/' && Looking(text, index + 1, '/'))
+            {
+                while (index < text.Length && text[index] != '\n')
+                    buffer[index++] = ' ';
+                continue;
+            }
+
+            //块注释 盖到收尾那一对 没闭合就盖到底
+            if (current == '/' && Looking(text, index + 1, '*'))
+            {
+                buffer[index++] = ' ';
+                buffer[index++] = ' ';
+                while (index < text.Length)
+                {
+                    var ends = text[index] == '*' && Looking(text, index + 1, '/');
+                    if (text[index] != '\n')
+                        buffer[index] = ' ';
+                    index++;
+                    if (!ends)
+                        continue;
+
+                    if (index < text.Length)
+                        buffer[index++] = ' ';
+                    break;
+                }
+                continue;
+            }
+
+            //字符串与字符字面量 前面的 @ $ 一起盖进去
+            if (current is '"' or '\'' or '@' or '$' && MaskLiteral(text, buffer, ref index))
+                continue;
+
+            index++;
+        }
+
+        return new string(buffer);
+    }
+
+    //MaskLiteral 盖掉一处字面量 认出来返回真
+    //@ 与 $ 只是前缀 后头没跟引号就原样放过 标识符里的 @ 不能当字符串头
+    private static bool MaskLiteral(string text, char[] buffer, ref int index)
+    {
+        var start = index;
+        while (index < text.Length && text[index] is '@' or '$')
+            index++;
+
+        if (index >= text.Length || text[index] is not ('"' or '\''))
+        {
+            index = start;
+            return false;
+        }
+
+        var quote = text[index];
+        var verbatim = index > start;
+        var raw = quote == '"' && Looking(text, index + 1, '"') && Looking(text, index + 2, '"');
+
+        //起始引号 原始字符串是三连
+        for (var step = 0; step < (raw ? 3 : 1) && index < text.Length; step++)
+            buffer[index++] = ' ';
+
+        while (index < text.Length)
+        {
+            //原始字符串三连引号收尾 里面的单双引号都不算数
+            if (raw && Looking(text, index, quote) && Looking(text, index + 1, quote) && Looking(text, index + 2, quote))
+            {
+                for (var step = 0; step < 3; step++)
+                    buffer[index++] = ' ';
+                break;
+            }
+
+            //转义 反斜杠连着下一个字符一起盖 换行留着免得行列错位
+            if (!raw && !verbatim && text[index] == '\\')
+            {
+                buffer[index++] = ' ';
+                if (index < text.Length && text[index] != '\n')
+                    buffer[index++] = ' ';
+                continue;
+            }
+
+            //逐字字符串里成对的引号是一处转义 不是收尾
+            if (!raw && verbatim && Looking(text, index, quote) && Looking(text, index + 1, quote))
+            {
+                buffer[index++] = ' ';
+                buffer[index++] = ' ';
+                continue;
+            }
+
+            var closing = text[index] == quote;
+            if (text[index] != '\n')
+                buffer[index] = ' ';
+            index++;
+
+            if (closing)
+                break;
+        }
+
+        return true;
+    }
+
+    //Looking 这一格是不是那个字符 越界一律不算
+    private static bool Looking(string text, int index, char value)
+        => index >= 0 && index < text.Length && text[index] == value;
 
     //Name 取条目标识的最后一段 它就是代码里写的那个类型名
     private static string Name(string id) => id.Split('.')[^1];
