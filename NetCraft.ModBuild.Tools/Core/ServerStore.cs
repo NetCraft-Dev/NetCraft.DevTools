@@ -5,27 +5,27 @@ using Spectre.Console;
 
 namespace NetCraft.ModBuild.Core;
 
-//ServerFile 清单里的一条
-//Hash 为空表示这份清单只有路径 那种情况下只按文件在不在判断
+//One entry from the index
+//An empty hash means the index carries only paths, in which case the file's presence is all that matters
 internal readonly record struct ServerFile(string Path, string Hash);
 
-//ServerStore 服务端运行时文件的本地缓存
-//目录落在用户目录的缓存里 本地齐备就不联网 缺哪个补哪个 每个文件给几次重试
-//只有 Refresh 那条路会按哈希比对 它会让内容对不上的文件重下
-//缓存位置与来源都能被项目配置改写 见 Configure
+//Local cache of server runtime files
+//It lives under the user cache directory and only fetches what is missing, retrying a few times per file
+//Only Refresh compares hashes and re-downloads files whose content differs
+//Both the cache location and the source can be overridden by the project config, see Configure
 public static class ServerStore
 {
-    //DefaultIndexFileName 默认清单文件名 一行一条 哈希与相对路径之间两个空格
+    //Default index file name with one entry per line and two spaces between hash and path
     private const string DefaultIndexFileName = "index.txt";
 
-    //DefaultBaseUrl 默认清单与各文件的下载基准
+    //Default download base for the index and the files it lists
     private const string DefaultBaseUrl =
         "https://raw.githubusercontent.com/NetCraft-Dev/NetCraft.Release/refs/heads/main/server/";
 
-    //Attempts 单个文件最多试几次
+    //Retry limit per file
     private const int Attempts = 5;
 
-    //HashSeparator 清单里哈希与路径的分隔 两个空格 与 sha256sum 的输出一致
+    //Separator between hash and path in the index, two spaces to match sha256sum output
     private const string HashSeparator = "  ";
 
     private static string Source { get; set; } = DefaultBaseUrl;
@@ -34,17 +34,15 @@ public static class ServerStore
 
     private static Regex? Matcher { get; set; }
 
-    //Root 缓存目录 用户目录下的 Server 配置里指定了就按配置来
+    //Cache directory, overridden by the Server section of the project config when present
     public static string Root { get; private set; } = CacheLayout.Server;
 
-    //IndexFileName 清单文件名
     public static string IndexFileName { get; private set; } = DefaultIndexFileName;
 
-    //IndexPath 清单的本地路径
     public static string IndexPath => Path.Combine(Root, IndexFileName);
 
-    //Configure 按项目配置调整缓存位置与来源 没配的项一律保持默认
-    //Cache 相对项目根解析 来源那块地址与规则一起换 只认 Formats 里的几种
+    //Adjust the cache location and source from the project config, keeping defaults for anything unset
+    //Cache resolves against the project root, and the source swaps address and rules together, accepting only the Formats list
     public static void Configure(NcProject? project)
     {
         if (project is null)
@@ -63,7 +61,7 @@ public static class ServerStore
         Matcher = BuildMatcher(source);
     }
 
-    //BuildMatcher regex 格式的正则 编译不出来就当没配 退回默认规则
+    //Regex for the regex format, treated as unconfigured and falling back to the default rules when it fails to compile
     private static Regex? BuildMatcher(NcSource source)
     {
         if (!string.Equals(source.Format, "regex", StringComparison.OrdinalIgnoreCase))
@@ -80,8 +78,8 @@ public static class ServerStore
         }
     }
 
-    //Ensure 保证缓存里的文件齐备 返回是否可用
-    //只认本地那份清单 不联网 远端有没有更新交给 Refresh
+    //Make sure the cached files are complete and return whether the cache is usable
+    //Only the local index is read, leaving the remote check to Refresh
     public static bool Ensure()
     {
         var entries = ReadIndex();
@@ -124,8 +122,8 @@ public static class ServerStore
         return Download(missing);
     }
 
-    //Refresh 拉远端清单覆盖本地 再按哈希补齐差异文件 返回是否可用
-    //与 Ensure 的区别是清单来自远端 且本地内容对不上也要重下
+    //Fetch the remote index over the local one and fill in files that differ by hash, returning whether the cache is usable
+    //Unlike Ensure the index comes from the remote and files whose local content differs are re-downloaded
     public static bool Refresh()
     {
         Console.WriteLine($"Refreshing server cache from {Source}{IndexFileName}");
@@ -163,8 +161,8 @@ public static class ServerStore
         return Download(stale);
     }
 
-    //Download 逐条下载 有一条失败就返回 false
-    //进度按文件计数 各份大小差得多 按字节算反倒看不出还剩几份
+    //Download every entry, returning false as soon as one fails
+    //Progress counts files because sizes vary too much for a byte count to show how many remain
     private static bool Download(List<ServerFile> files)
     {
         if (!Transfer.Enabled)
@@ -200,8 +198,8 @@ public static class ServerStore
         return false;
     }
 
-    //DownloadCore 逐条下载 有一条失败就停下
-    //completed 每备好一份回调一次 给的是文件名 不画进度时传 null
+    //Download every entry and stop at the first failure
+    //completed fires once per finished file with its name, or null when no progress is drawn
     private static bool DownloadCore(List<ServerFile> files, Action<string>? completed, out string error)
     {
         error = string.Empty;
@@ -221,9 +219,9 @@ public static class ServerStore
         return true;
     }
 
-    //IsForHost 清单里这条要不要下
-    //清单是全平台的 原生库按平台分了目录 别的平台那份下下来也加载不了
-    //runtimes 下按 RID 分 TraceEvent 的原生组件按架构分 两种都要挑 其余文件平台无关一律要
+    //Whether this index entry should be downloaded
+    //The index covers all platforms and a native library built for another platform could not be loaded here
+    //Entries under runtimes are split by RID and TraceEvent native components by architecture, both needing a pick, while other files are platform independent
     private static bool IsForHost(string entry)
     {
         var segments = entry.Split('/');
@@ -243,8 +241,8 @@ public static class ServerStore
         };
     }
 
-    //MatchesRuntime 平台目录名与本机是否对得上
-    //win-x64 这类直接相等 也有 osx 这种只带系统的 和 linux-musl-x64 这种带发行版变体的 后两种按系统加架构段认
+    //Whether a platform directory name matches this machine
+    //Names like win-x64 match directly, while system-only names like osx and distro variants like linux-musl-x64 are matched by system plus architecture
     private static bool MatchesRuntime(string rid)
     {
         var host = RuntimeInformation.RuntimeIdentifier;
@@ -266,8 +264,8 @@ public static class ServerStore
                 && rid.EndsWith("-" + architecture, StringComparison.OrdinalIgnoreCase));
     }
 
-    //HashMatches 本地文件的 sha256 与清单里那条是否一致
-    //清单没带哈希就无从比 按一致处理 读不出内容同样按不一致处理
+    //Whether the sha256 of a local file matches the index entry
+    //A missing hash counts as a match while an unreadable file counts as a mismatch
     private static bool HashMatches(string path, string expected)
     {
         if (expected.Length == 0)
@@ -286,7 +284,7 @@ public static class ServerStore
         }
     }
 
-    //ReadIndex 读清单 没有或读不出返回空表
+    //Read the index, returning an empty list when it is absent or unreadable
     private static List<ServerFile> ReadIndex()
     {
         if (!File.Exists(IndexPath))
@@ -306,8 +304,8 @@ public static class ServerStore
         }
     }
 
-    //ParseEntry 按配置的格式拆开清单里的一条
-    //regex 认 Pattern 里两个捕获组 依次是哈希与相对路径 对不上就跳过这一条
+    //Split one index line according to the configured format
+    //The regex format expects the two capture groups, hash and relative path, and skips a line that does not match
     private static ServerFile ParseEntry(string line)
     {
         var text = line.Trim();
@@ -322,11 +320,11 @@ public static class ServerStore
                 : new ServerFile(string.Empty, string.Empty);
         }
 
-        //plain 一行就只有路径 哈希一律当没有 那样只按文件在不在判断
+        //The plain format gives only a path and treats the hash as absent, so presence alone decides
         if (string.Equals(Format, "plain", StringComparison.OrdinalIgnoreCase))
             return new ServerFile(Normalize(text), string.Empty);
 
-        //sha256-lines 是 sha256sum 的输出 认不出哈希时整行当路径
+        //The sha256-lines format mirrors sha256sum output, treating a line without a recognizable hash as a path
         var separator = text.IndexOf(HashSeparator, StringComparison.Ordinal);
         if (separator > 0 && IsHex(text.AsSpan(0, separator)))
             return new ServerFile(Normalize(text[(separator + HashSeparator.Length)..]), text[..separator]);
@@ -334,7 +332,7 @@ public static class ServerStore
         return new ServerFile(Normalize(text), string.Empty);
     }
 
-    //Normalize 清单里的路径统一成斜杠分隔
+    //Normalize index paths to slash separators
     private static string Normalize(string path)
         => path.Trim().Replace('\\', '/');
 
@@ -351,8 +349,8 @@ public static class ServerStore
         return true;
     }
 
-    //TryDownload 下载一份文件 失败重试到上限
-    //先落临时文件再整体挪过去 半截内容不会留在缓存里
+    //Download one file, retrying up to the limit
+    //The file lands in a temporary path first so a partial download never stays in the cache
     private static bool TryDownload(string relative, out string error)
     {
         var target = ResolveCachePath(relative);
@@ -373,12 +371,12 @@ public static class ServerStore
         return false;
     }
 
-    //Url 清单里的相对路径拼成下载地址 逐段转义免得空格之类破坏地址
+    //Build the download address from a relative index path, escaping each segment so spaces cannot break the URL
     private static string Url(string relative)
         => Source + string.Join('/', relative.Split('/').Select(Uri.EscapeDataString));
 
-    //ResolveCachePath 把相对路径落到缓存目录内 越界返回 null
-    //清单来自网络 路径里带 .. 时不挡住就会写到缓存目录外面去
+    //Resolve a relative path inside the cache directory, returning null when it escapes
+    //The index comes from the network so a .. in a path would otherwise write outside the cache directory
     private static string? ResolveCachePath(string relative)
     {
         var normalized = relative.Replace('/', Path.DirectorySeparatorChar)

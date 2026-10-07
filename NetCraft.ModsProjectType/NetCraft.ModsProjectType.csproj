@@ -1,10 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    NetCraft 模组项目模板包。
-    打包后 dotnet new install NetCraft.ModsProjectType 即可用 dotnet new ncm 创建模组项目。
-    模板里的 content/ncm/Build/kernel/ 是要随包发出去的引用程序集 所以 pack 前会从 reference/ 同步一次
-    免得发出去的还是老接口。
+    NetCraft mod project template package.
+    After packing, dotnet new install NetCraft.ModsProjectType enables dotnet new ncm.
+    content/ncm/Build/kernel/ ships reference assemblies, so pack syncs them from
+    reference/ first to avoid shipping stale interfaces.
   -->
 
   <PropertyGroup>
@@ -15,19 +15,19 @@
     <TargetFramework>net10.0</TargetFramework>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
-    <!--NU5128 空依赖组 NU5100 模板里的引用程序集本来就不该放 lib/ 下-->
+    <!-- NU5128 empty dependency group and NU5100 because template reference assemblies must not live under lib/ -->
     <NoWarn>$(NoWarn);NU5128;NU5100</NoWarn>
-    <!--模板内容里有 .cs 它们是给生成的项目用的 不能当成这个包自己的源码-->
+    <!-- The template contains .cs files meant for generated projects, so they must not be compiled as this package's source -->
     <EnableDefaultItems>false</EnableDefaultItems>
-    <!--同步来源 默认取本仓库的 reference/ 换目录时覆盖它-->
+    <!-- Source for the sync, defaults to this repo's reference/ and can be overridden -->
     <NetCraftRuntimeDir Condition="'$(NetCraftRuntimeDir)' == ''">$(MSBuildThisFileDirectory)..\reference</NetCraftRuntimeDir>
   </PropertyGroup>
 
   <ItemGroup>
     <!--
-      模板文件全量进包。
-      排除 Build\kernel 是因为它由 SyncNetCraftLibs 单独挂 排除 obj 与 bin 是因为模板目录
-      被 IDE 或构建碰过之后会留下中间产物 它们进包会跟着落到新项目里。
+      All template files go into the package, except Build\kernel (added by
+      SyncNetCraftLibs) and obj/bin, whose build leftovers would otherwise leak
+      into every new project.
     -->
     <None Include="content\**\*"
           Exclude="content\ncm\Build\kernel\**\*;content\ncm\obj\**\*;content\ncm\bin\**\*"
@@ -35,9 +35,10 @@
   </ItemGroup>
 
   <!--
-    SyncNetCraftLibs 把内核引用程序集同步进模板 并把它们挂进包。
-    同步要在 _GetPackageFiles 之前 挂包项也必须在这一刻做 —— 首次打包时 Build\kernel 还不存在
-    光靠评估阶段的 None 通配符匹配不到它 结果就是包出了但里面没有引用程序集。
+    SyncNetCraftLibs copies the kernel reference assemblies into the template and adds
+    them to the package; the item must be added at this point because Build\kernel does
+    not exist yet on the first pack, so the evaluation-time None glob misses it and the
+    package would ship without reference assemblies.
   -->
   <Target Name="SyncNetCraftLibs" BeforeTargets="_GetPackageFiles">
     <ItemGroup>

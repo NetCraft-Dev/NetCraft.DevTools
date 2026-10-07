@@ -3,21 +3,20 @@ using NetCraft.ModBuild.Core;
 
 namespace NetCraft.ModBuild.Tools;
 
-//RestoreTool 按项目配置里的包声明把依赖还原到项目里
-//还原出来的是编译期引用 也是之后要嵌进模组程序集的那批
+//RestoreTool restores the packages declared in the project config
+//The result is the compile-time references that later get embedded into the mod assembly
 internal static class RestoreTool
 {
-    //DefaultDirectory 没给参数时的还原目录
+    //DefaultDirectory is the restore folder used when no directory is given
     private static readonly string DefaultDirectory = ProjectLayout.Packages;
 
-    //Register 把本工具登记进注册表 名字说明与参数都写在这一行
     public static void Register()
         => ToolRegistry.Register("restore", "Resolve the declared packages and copy their assemblies into the project", Run,
         [
             new("[directory]", $"Where to restore, relative to the project root, defaults to {DefaultDirectory}"),
         ]);
 
-    //Run 找项目 定目录 交给解析器
+    //Run finds the project, resolves the target directory and hands off to the resolver
     private static int Run(string[] args)
     {
         if (args.Length > 1)
@@ -53,8 +52,8 @@ internal static class RestoreTool
         return 0;
     }
 
-    //Ensure 还原项目的依赖 已经就绪就直接过
-    //build 那条链也走这里 还原只有这一份实现
+    //Ensure restores the project dependencies and short-circuits when they are already in place
+    //The build path relies on this too, so there is a single restore implementation
     internal static bool Ensure(NcProject project, string directory, out string error)
     {
         error = string.Empty;
@@ -67,13 +66,13 @@ internal static class RestoreTool
         return PackageResolver.Restore(project, directory, out error);
     }
 
-    //DirectoryOf 还原落点 给了就用给的 没给走默认
+    //DirectoryOf is the restore destination, the given directory or the default
     internal static string DirectoryOf(NcProject project, string? directory = null)
         => Path.GetFullPath(Path.Combine(project.Directory,
             string.IsNullOrWhiteSpace(directory) ? DefaultDirectory : directory));
 
-    //Ready 声明的包都落在目录里了
-    //传递依赖跟着声明走 restore 一次就齐 这里只认声明过的那些
+    //Ready checks that every declared package already sits in the directory
+    //Transitive dependencies follow the declared ones, so only declared packages are checked here
     private static bool Ready(NcProject project, string directory)
     {
         if (project.Packages.Count == 0 || !Directory.Exists(directory))

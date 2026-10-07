@@ -3,65 +3,60 @@ using NetCraft.ModBuild.Core;
 
 namespace NetCraft.ModBuild.Diagnostics;
 
-//UsageState 项目里的一处 api 用法看起来对不对
+//UsageState how plausible one api usage in the project looks
 public enum UsageState
 {
-    //Ok 类型与成员都在清单里
+    //both the type and the member are in the catalog
     Ok,
-    //Warn 类型在清单里 但成员不在它的成员表里
+    //the type is in the catalog but the member is missing from its member table
     Warn,
-    //Missing 名字像模组 api 却不在清单里
+    //the name looks like a mod api yet is absent from the catalog
     Missing,
 }
 
-//UsageLocation 一处用法在源码里的落点
+//UsageLocation where one usage lands in the source
 public sealed record UsageLocation(string File, int Line, string Text);
 
-//ApiUsageItem 一处用法的完整信息 面板照它列清单 诊断照它出修复提示
+//ApiUsageItem everything about one usage; the panel lists these and diagnostics derive fixes from them
 public sealed class ApiUsageItem
 {
-    //Symbol 类型.成员
+    //in Type.Member form
     public required string Symbol { get; init; }
 
-    //State 定级
     public required UsageState State { get; init; }
 
-    //Type 类型名
     public required string Type { get; init; }
 
-    //Member 成员名
     public required string Member { get; init; }
 
-    //Candidates 可能想要的 api 按接近程度排前几个
-    //Warn 给同类型的成员 Missing 给清单里的类型
+    //likely intended apis, nearest first; Warn lists members of the same type and Missing lists catalog types
     public required List<string> Candidates { get; init; }
 
-    //Locations 源码里的出现位置
+    //where it appears in the source
     public required List<UsageLocation> Locations { get; init; }
 }
 
-//ApiUsage 扫项目源码得到的用法表
-//清单是权威 api 名单 对照它给每处用法定级
+//ApiUsage the usage table produced by scanning the project sources
+//the catalog is the authoritative api list, so every usage is graded against it
 public sealed class ApiUsage
 {
-    //MaxCandidates 修复提示里最多给几个候选
+    //MaxCandidates caps how many candidates a fix hint lists
     private const int MaxCandidates = 6;
 
-    //MaxLocations 一个符号最多记几处出现
+    //MaxLocations caps how many occurrences are recorded per symbol
     private const int MaxLocations = 3;
 
-    //TypeDeclaration 源码里定义类型的几种写法 用它把项目自己的类型摘出清单校验
-    //清单管的是内核暴露给模组的 api 项目自己声明的类型不归它管 写错了编译期就知道
+    //TypeDeclaration matches type definitions in the source so the project's own types are exempt from catalog checks
+    //the catalog governs only the api the kernel exposes to mods, and a typo in a local type surfaces at compile time
     private static readonly Regex TypeDeclaration = new(
         @"\b(?:class|struct|interface|enum|record)\s+(?:class\s+|struct\s+)?([A-Za-z_][A-Za-z0-9_]*)",
         RegexOptions.Compiled);
 
     private readonly Dictionary<string, ApiUsageItem> _items = new(StringComparer.Ordinal);
 
-    //Items 每一处用法与它的信息
     public IReadOnlyCollection<ApiUsageItem> Items => _items.Values;
 
-    //Scan 扫目录下的源码 按清单给每处用法定级
+    //Scan walks the sources under root and grades every usage against the catalog
     public static ApiUsage Scan(string root, TemplateCatalog? catalog)
     {
         var usage = new ApiUsage();
@@ -78,7 +73,7 @@ public sealed class ApiUsage
             return usage;
         }
 
-        //条目名到成员表 表为 null 表示这条不校验成员
+        //entry name to member table; a null table means this entry does not check members
         var members = new Dictionary<string, HashSet<string>?>(StringComparer.Ordinal);
         foreach (var entry in catalog.Apis)
             members[Name(entry.Id)] = entry.Members.Count > 0
@@ -89,9 +84,9 @@ public sealed class ApiUsage
         var files = SourceFiles.Enumerate(root).ToList();
         Trace.Log($"scanned {files.Count} source file(s) under {root}");
 
-        //先把整份源码读进来 项目自己定义的类型要一次收齐
-        //边读边扫的话 前面文件引用后面文件定义的类型会被当成清单里没有
-        //匹配走盖掉注释与字符串的那一份 报位置仍旧拿原始那份 两者下标一一对应
+        //Read every source up front so all project-defined types are collected in one pass
+        //scanning file by file would treat a type defined in a later file as absent from the catalog
+        //matching runs against the masked text while positions still come from the original, whose indices line up one to one
         var sources = new List<(string File, string Text, string Masked)>(files.Count);
         var defined = new HashSet<string>(StringComparer.Ordinal);
         foreach (var file in files)
@@ -124,7 +119,7 @@ public sealed class ApiUsage
 
                 if (!usage._items.TryGetValue(symbol, out var item))
                 {
-                    //项目自己声明的类型直接算过 清单里有没有同名的都不该拿来说事
+                    //a type the project declares passes outright, even when the catalog holds a same-named entry
                     var state = defined.Contains(type)
                         ? UsageState.Ok
                         : Judge(members, type, member);
@@ -152,8 +147,8 @@ public sealed class ApiUsage
         return usage;
     }
 
-    //BuildPattern 按清单里的规则拼出识别 类型.成员 的正则
-    //规则一条都没有时不扫 免得把项目里所有 类型.成员 都当模组 api
+    //BuildPattern assembles the Type.Member regex from the catalog's grade rules
+    //with no rules it returns null so trivial Type.Member references are not all read as mod api calls
     private static Regex? BuildPattern(GradeRule rule)
     {
         var alternatives = new List<string>();
@@ -176,8 +171,7 @@ public sealed class ApiUsage
             RegexOptions.Compiled);
     }
 
-    //Candidates 修复提示里给的候选
-    //Warn 在同类型的成员里找 Missing 在清单的类型名里找 都按编辑距离排序
+    //Candidates builds the fix hints; Warn searches members of the same type and Missing searches catalog type names, both ordered by edit distance
     private static List<string> Candidates(
         Dictionary<string, HashSet<string>?> members,
         List<string> knownTypes,
@@ -190,7 +184,7 @@ public sealed class ApiUsage
             if (!members.TryGetValue(type, out var table) || table is null)
                 return new List<string>();
 
-            //成员动辄几十个 差太远的列出来只会添乱
+            //a type can carry dozens of members, so distant ones would only add noise
             var limit = Math.Max(2, member.Length / 2);
             return table
                 .Select(name => (Name: name, Distance: Similarity.Distance(member, name)))
@@ -203,7 +197,7 @@ public sealed class ApiUsage
 
         if (state == UsageState.Missing)
         {
-            //类型总共没几条 全列出来 最像的排最前 用户扫一眼就知道能换成什么
+            //there are few types in total, so list them all with the closest first
             return knownTypes
                 .OrderBy(name => Similarity.Distance(type, name))
                 .Take(MaxCandidates)
@@ -213,7 +207,7 @@ public sealed class ApiUsage
         return new List<string>();
     }
 
-    //LineOf 字符下标落在第几行 行号从 1 起
+    //LineOf returns the 1-based line that contains a character index
     private static int LineOf(string text, int index)
     {
         var line = 1;
@@ -225,7 +219,7 @@ public sealed class ApiUsage
         return line;
     }
 
-    //LineText 字符下标所在行的文本 缩进保留 位置箭头才对得上
+    //LineText returns the line text at an index with indentation kept so the position arrow lines up
     private static string LineText(string text, int index)
     {
         var start = index;
@@ -239,8 +233,7 @@ public sealed class ApiUsage
         return text[start..end].TrimEnd('\r');
     }
 
-    //Mask 把注释与字符串盖成空格 换行留着
-    //匹配与报位置都按同一份文本的下标走 盖过之后行列照样对得上
+    //Mask blanks out comments and string literals while keeping newlines, so masked and original text share the same indices
     private static string Mask(string text)
     {
         var buffer = text.ToCharArray();
@@ -250,7 +243,6 @@ public sealed class ApiUsage
         {
             var current = text[index];
 
-            //行注释 盖到行尾
             if (current == '/' && Looking(text, index + 1, '/'))
             {
                 while (index < text.Length && text[index] != '\n')
@@ -258,7 +250,7 @@ public sealed class ApiUsage
                 continue;
             }
 
-            //块注释 盖到收尾那一对 没闭合就盖到底
+            //block comment: blank through the closing pair, or to the end when it is unterminated
             if (current == '/' && Looking(text, index + 1, '*'))
             {
                 buffer[index++] = ' ';
@@ -279,7 +271,6 @@ public sealed class ApiUsage
                 continue;
             }
 
-            //字符串与字符字面量 前面的 @ $ 一起盖进去
             if (current is '"' or '\'' or '@' or '$' && MaskLiteral(text, buffer, ref index))
                 continue;
 
@@ -289,8 +280,8 @@ public sealed class ApiUsage
         return new string(buffer);
     }
 
-    //MaskLiteral 盖掉一处字面量 认出来返回真
-    //@ 与 $ 只是前缀 后头没跟引号就原样放过 标识符里的 @ 不能当字符串头
+    //MaskLiteral blanks one literal and reports whether it recognized one
+    //@ and $ are only prefixes, so they pass through untouched without a following quote since an @ inside an identifier is no string opener
     private static bool MaskLiteral(string text, char[] buffer, ref int index)
     {
         var start = index;
@@ -307,13 +298,13 @@ public sealed class ApiUsage
         var verbatim = index > start;
         var raw = quote == '"' && Looking(text, index + 1, '"') && Looking(text, index + 2, '"');
 
-        //起始引号 原始字符串是三连
+        //opening quotes; a raw string opens with three
         for (var step = 0; step < (raw ? 3 : 1) && index < text.Length; step++)
             buffer[index++] = ' ';
 
         while (index < text.Length)
         {
-            //原始字符串三连引号收尾 里面的单双引号都不算数
+            //a raw string closes on three quotes, and single or double quotes inside do not count
             if (raw && Looking(text, index, quote) && Looking(text, index + 1, quote) && Looking(text, index + 2, quote))
             {
                 for (var step = 0; step < 3; step++)
@@ -321,7 +312,7 @@ public sealed class ApiUsage
                 break;
             }
 
-            //转义 反斜杠连着下一个字符一起盖 换行留着免得行列错位
+            //escape: blank the backslash together with the next character, but keep newlines so lines do not shift
             if (!raw && !verbatim && text[index] == '\\')
             {
                 buffer[index++] = ' ';
@@ -330,7 +321,7 @@ public sealed class ApiUsage
                 continue;
             }
 
-            //逐字字符串里成对的引号是一处转义 不是收尾
+            //in a verbatim string a doubled quote is an escape, not the terminator
             if (!raw && verbatim && Looking(text, index, quote) && Looking(text, index + 1, quote))
             {
                 buffer[index++] = ' ';
@@ -350,14 +341,14 @@ public sealed class ApiUsage
         return true;
     }
 
-    //Looking 这一格是不是那个字符 越界一律不算
+    //Looking reports whether the character at an index matches, counting out-of-range as no match
     private static bool Looking(string text, int index, char value)
         => index >= 0 && index < text.Length && text[index] == value;
 
-    //Name 取条目标识的最后一段 它就是代码里写的那个类型名
+    //Name takes the last segment of an entry id, which is the type name written in code
     private static string Name(string id) => id.Split('.')[^1];
 
-    //Judge 一处用法该算哪一级
+    //Judge decides which grade one usage gets
     private static UsageState Judge(Dictionary<string, HashSet<string>?> members, string type, string member)
     {
         if (!members.TryGetValue(type, out var table))

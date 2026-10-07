@@ -4,19 +4,18 @@ using NetCraft.ModBuild.Core;
 
 namespace NetCraft.ModBuild.Tools;
 
-//MsBuildLibrary 把本机 sdk 自带的 msbuild 程序集挂到解析链上
-//ncm 自己不分发这些程序集 引擎必须与 sdk 同一份 否则 sdk 的解析器与 targets 会因为接口对不上翻车
+//Hooks the msbuild assemblies bundled with the local sdk into assembly resolution
+//ncm does not ship them and the engine must be the sdk's own copy, or the sdk's resolvers and targets break on mismatched interfaces
 internal static class MsBuildLibrary
 {
-    //_directory 本机 sdk 目录 找不到就是 null
+    //Local sdk directory, null when this machine has none
     private static string? _directory;
     private static bool _attached;
 
-    //SdkDirectory sdk 目录 拿不到说明这台机器没装 sdk
     public static string? SdkDirectory => _directory ??= Locate();
 
-    //Attach 定位 sdk 并把解析事件挂上 返回引擎是否可用
-    //要赶在第一个 msbuild 类型被解析之前调用 不然加载就按默认规则走 找不到那份程序集
+    //Locates the sdk, hooks the resolve event and reports whether the engine is usable
+    //Must run before the first msbuild type is resolved, or loading falls back to default rules and misses that copy
     public static bool Attach(out string error)
     {
         error = string.Empty;
@@ -35,7 +34,7 @@ internal static class MsBuildLibrary
         return true;
     }
 
-    //Resolve 缺哪个就从 sdk 目录取哪个 取不到交回默认逻辑
+    //Loads a missing assembly from the sdk directory, returning null to fall back to default resolution
     private static Assembly? Resolve(AssemblyLoadContext context, AssemblyName name)
     {
         if (SdkDirectory is null || string.IsNullOrEmpty(name.Name))
@@ -45,7 +44,7 @@ internal static class MsBuildLibrary
         return File.Exists(path) ? context.LoadFromAssemblyPath(path) : null;
     }
 
-    //Locate 取版本最高的那个 sdk 目录
+    //Picks the highest-version sdk directory
     private static string? Locate()
     {
         var root = Environment.GetEnvironmentVariable("DOTNET_ROOT");
@@ -61,7 +60,7 @@ internal static class MsBuildLibrary
         if (!Directory.Exists(directory))
             return null;
 
-        //按版本号比 别按目录名比 否则 9.x 会排在 10.x 前面
+        //Compare by version, not directory name, or 9.x would sort before 10.x
         return Directory.GetDirectories(directory)
             .Where(path => File.Exists(Path.Combine(path, "MSBuild.dll")))
             .OrderByDescending(path => Version.TryParse(Path.GetFileName(path), out var value) ? value : new Version())

@@ -2,18 +2,18 @@ using NetCraft.ModBuild.Core;
 
 namespace NetCraft.ModBuild.Diagnostics;
 
-//ModApiAnalyzer 拿清单给项目里的 api 用法定级 再把问题转成诊断
-//清单里没有的类型算 error 拦构建 成员对不上只算 warning 清单可能只是没登记全
+//ModApiAnalyzer grades the project's api usages against the catalog and turns problems into diagnostics
+//a type absent from the catalog is an error that blocks the build, while a mismatched member is only a warning since the catalog may be incomplete
 public static class ModApiAnalyzer
 {
-    //UnknownTypeCode 类型不在清单里
+    //UnknownTypeCode is reported when the type is not in the catalog
     public const string UnknownTypeCode = "NC0001";
 
-    //UnknownMemberCode 类型在清单里 成员不在
+    //UnknownMemberCode is reported when the type is in the catalog but the member is not
     public const string UnknownMemberCode = "NC0002";
 
-    //Analyze 扫项目源码 把对不上清单的用法收进 bag
-    //返回已经报过的标识符 给 Roslyn 那一步去重 同一处错不该报两遍
+    //Analyze scans the sources and collects catalog mismatches into bag
+    //it returns the identifiers already reported so the Roslyn pass can dedupe and avoid reporting one spot twice
     public static HashSet<string> Analyze(string root, TemplateCatalog catalog, DiagnosticBag bag)
     {
         var covered = new HashSet<string>(StringComparer.Ordinal);
@@ -33,8 +33,8 @@ public static class ModApiAnalyzer
             var fixes = new List<Suggestion>();
             if (location is not null)
             {
-                //最近的一个候选做成能直接照着改的建议
-                //类型未知就换类型那段 成员未知就换成员那段
+                //the nearest candidate becomes an actionable replacement
+                //an unknown type replaces the type segment, an unknown member replaces the member segment
                 var first = item.Candidates.FirstOrDefault();
                 if (first is not null)
                 {
@@ -51,7 +51,7 @@ public static class ModApiAnalyzer
                         Applicability.MaybeIncorrect));
                 }
 
-                //其余候选合成一条 没有标题之后得自带说明
+                //remaining candidates merge into one line that explains itself, as there is no heading
                 var rest = item.Candidates.Skip(1).ToList();
                 if (rest.Count > 0)
                     fixes.Add(Suggestion.Text($"other candidates: {string.Join(", ", rest)}"));
@@ -78,7 +78,7 @@ public static class ModApiAnalyzer
         return covered;
     }
 
-    //LastSegment 候选是 类型.成员 形式 取最后那段成员名
+    //LastSegment takes the member name from a Type.Member candidate
     private static string LastSegment(string symbol)
     {
         var dot = symbol.LastIndexOf('.');

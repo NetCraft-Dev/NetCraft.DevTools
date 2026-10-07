@@ -10,11 +10,11 @@ using NetCraft.ModBuild.Core;
 
 namespace NetCraft.ModBuild.Tools;
 
-//AsmTool 查看任意程序集 列类型 看类型详情 反编译源码 读依赖
-//摘要与详情走元数据 反编译那一档交给 ICSharpCode.Decompiler 直接给 C# 源码而不是 IL
+//AsmTool inspects any assembly: list types, show type details, decompile source, read dependencies
+//Summaries and details come from metadata while decompilation is delegated to ICSharpCode.Decompiler so it yields C# rather than IL
 internal static class AsmTool
 {
-    //Register 把本工具登记进注册表 名字说明与参数都写在这一行
+    //Register this tool with its name, description and parameters
     public static void Register()
         => ToolRegistry.Register("asm", "Inspect a .NET assembly: type list, type details, decompiled source, dependencies", Run,
         [
@@ -26,13 +26,13 @@ internal static class AsmTool
             new("-o, --output <file>", "Write the result to a file instead of the console"),
         ]);
 
-    //Mode 这次要出什么东西
+    //Mode selects what this run produces
     private enum Mode { Summary, Details, Decompile, Dependencies }
 
-    //TypeRow 类型清单里的一行
+    //TypeRow one entry in the type list
     private readonly record struct TypeRow(string Kind, string FullName);
 
-    //Run 解析参数 按模式产出一段文本 不给 -o 就打到控制台
+    //Run parses the arguments and produces a text block per mode, printing it unless -o is given
     private static int Run(string[] args)
     {
         var path = default(string);
@@ -131,7 +131,7 @@ internal static class AsmTool
         return 0;
     }
 
-    //TakeValue 取走选项后面那个值 后面没有了就报错
+    //TakeValue consumes the value after an option, failing when there is none left
     private static bool TakeValue(string[] args, ref int index, out string? value)
     {
         if (index + 1 >= args.Length)
@@ -144,7 +144,7 @@ internal static class AsmTool
         return true;
     }
 
-    //PrintUsage 帮助文本
+    //PrintUsage prints the help text
     private static void PrintUsage()
     {
         Console.WriteLine("Usage: ncm asm <assembly> [-t <type> | -d <type> | -dep] [-r <directory>] [-o <file>]");
@@ -156,7 +156,7 @@ internal static class AsmTool
         Console.WriteLine("  -o, --output      write the result to a file instead of the console");
     }
 
-    //Summary 程序集摘要加完整类型清单
+    //Summary an assembly summary plus the full type list
     private static string Summary(string path)
     {
         using var stream = File.OpenRead(path);
@@ -178,7 +178,7 @@ internal static class AsmTool
         return builder.ToString();
     }
 
-    //Details 一个类型的基类 字段 属性 方法
+    //Details the base type, fields, properties and methods of one type
     private static string Details(string path, string query)
     {
         using var stream = File.OpenRead(path);
@@ -224,8 +224,8 @@ internal static class AsmTool
         return builder.ToString();
     }
 
-    //Decompile 把一个类型反编译成 C# 源码
-    //依赖找不齐不能整块失败 解析器放宽之后未解析的类型会按全名留在源码里 代码照样出得来
+    //Decompile turns one type into C# source
+    //Missing dependencies must not fail the whole run, a relaxed resolver keeps unresolved types as full names so the source still comes out
     private static string Decompile(string path, string query, List<string> references)
     {
         string full;
@@ -242,13 +242,13 @@ internal static class AsmTool
         foreach (var reference in references)
             resolver.AddSearchDirectory(Path.GetFullPath(reference));
 
-        //缺的先按程序集名去 NuGet 缓存里翻一轮 翻不到才算真缺
+        //Look for the missing ones in the NuGet cache by assembly name, they only count as missing when that fails
         ResolveFromNuGet(module, resolver);
 
         var missing = Unresolved(module, resolver);
         if (missing.Count > 0)
         {
-            //缺依赖不拦 但要让用户知道源码里有类型没解析上 补 -r 能修
+            //Missing dependencies do not stop the run but the user should know some types stayed unresolved, -r fixes it
             Console.Error.WriteLine($"warning: unresolved assemblies: {string.Join(", ", missing)}");
             Console.Error.WriteLine("warning: types from them stay as full names in the source, use -r <directory> to add a search path");
         }
@@ -258,7 +258,7 @@ internal static class AsmTool
         return decompiler.DecompileTypeAsString(new ICSharpCode.Decompiler.TypeSystem.FullTypeName(full));
     }
 
-    //Unresolved 还没解析上的程序集名
+    //Unresolved names of the assemblies that are still unresolved
     private static List<string> Unresolved(PEFile module, UniversalAssemblyResolver resolver)
     {
         var names = new List<string>();
@@ -267,8 +267,8 @@ internal static class AsmTool
         return names;
     }
 
-    //ResolveFromNuGet 缺的按程序集名去 NuGet 全局包缓存里翻同版本的库
-    //程序集名和包名不一定一样 Avalonia.Base 在包 avalonia 里 所以整名不中就退回首段
+    //ResolveFromNuGet finds missing assemblies in the NuGet global package cache by assembly name
+    //An assembly name is not always the package name (Avalonia.Base ships in avalonia), so fall back to the first segment when the full name misses
     private static void ResolveFromNuGet(PEFile module, UniversalAssemblyResolver resolver)
     {
         var root = PackageRoot();
@@ -282,7 +282,7 @@ internal static class AsmTool
         }
     }
 
-    //PackageRoot NuGet 全局包缓存的位置 环境变量优先
+    //PackageRoot the NuGet global package cache location, the environment variable wins
     private static string? PackageRoot()
     {
         var root = Environment.GetEnvironmentVariable("NUGET_PACKAGES");
@@ -291,7 +291,7 @@ internal static class AsmTool
         return Directory.Exists(root) ? root : null;
     }
 
-    //NuGetDirectories 一个程序集在缓存里可能落到的框架目录 版本对上才给
+    //NuGetDirectories the framework directories an assembly may live in inside the cache, only a matching version qualifies
     private static IEnumerable<string> NuGetDirectories(string root, string name, Version? version)
     {
         if (version is null) yield break;
@@ -310,22 +310,22 @@ internal static class AsmTool
                     var framework = PickFramework(path);
                     if (framework is null) continue;
                     yield return framework;
-                    //lib 里有实现就不用再退到只有签名的 ref
+                    //A lib folder carries the implementation, no need to fall back to the signature-only ref
                     break;
                 }
             }
         }
     }
 
-    //VersionMatches 目录名与引用版本对上 12.1.3 与 12.1.3.0 算同一个
+    //VersionMatches whether a directory name matches the referenced version, 12.1.3 and 12.1.3.0 count as the same
     private static bool VersionMatches(string directory, Version version)
         => Version.TryParse(directory, out var parsed) && Normalize(parsed) == Normalize(version);
 
-    //Normalize 版本取前三段 最后那位零头不看
+    //Normalize keeps the first three version parts and ignores the trailing revision
     private static string Normalize(Version version)
         => $"{version.Major}.{version.Minor}.{Math.Max(0, version.Build)}";
 
-    //PickFramework 版本目录下的目标框架子目录 优先当前运行时那个
+    //PickFramework the target framework subdirectory under a version, preferring the current runtime
     private static string? PickFramework(string path)
     {
         var directories = Directory.GetDirectories(path);
@@ -335,7 +335,7 @@ internal static class AsmTool
             ?? directories.OrderBy(directory => Path.GetFileName(directory), StringComparer.OrdinalIgnoreCase).First();
     }
 
-    //Dependencies 程序集引用清单
+    //Dependencies the assembly reference list
     private static string Dependencies(string path)
     {
         using var stream = File.OpenRead(path);
@@ -356,7 +356,7 @@ internal static class AsmTool
         return builder.ToString();
     }
 
-    //NotFound 找不到类型时给的消息 顺带列几个名字像的
+    //NotFound the message when a type is missing, including a few similarly named ones
     private static string NotFound(MetadataReader reader, string query)
     {
         var near = Types(reader)
@@ -369,7 +369,7 @@ internal static class AsmTool
             : $"no type named {query}";
     }
 
-    //Resolve 把用户给的短名或全名对上类型定义 对不上返回 null
+    //Resolve matches a short or full name the user gave to a type definition, returning null when nothing matches
     private static TypeDefinitionHandle? Resolve(MetadataReader reader, string query)
     {
         var rows = new List<(TypeDefinitionHandle Handle, string Full, string Short)>();
@@ -388,7 +388,7 @@ internal static class AsmTool
         return matches.Count == 1 ? matches[0].Handle : null;
     }
 
-    //Types 全部类型定义 顺序跟元数据里一致
+    //Types every type definition in metadata order
     private static List<TypeRow> Types(MetadataReader reader)
     {
         var rows = new List<TypeRow>();
@@ -401,7 +401,7 @@ internal static class AsmTool
         return rows;
     }
 
-    //MethodCount 真实类型上的方法总数 编译器生成的那些不算
+    //MethodCount the total method count across real types, compiler generated ones excluded
     private static int MethodCount(MetadataReader reader)
     {
         var total = 0;
@@ -414,18 +414,18 @@ internal static class AsmTool
         return total;
     }
 
-    //IsCompilerGenerated 名字以尖括号开头的都是编译器生成的 列清单时不该出现
+    //IsCompilerGenerated compiler generated types start with an angle bracket and should not be listed
     private static bool IsCompilerGenerated(TypeDefinition type, MetadataReader reader)
     {
         var name = reader.GetString(type.Name);
         return name.Length == 0 || name[0] == '<';
     }
 
-    //CountOf 摘要里某一类有多少个
+    //CountOf how many rows of a kind the summary reports
     private static int CountOf(List<TypeRow> rows, string kind)
         => rows.Count(row => row.Kind == kind);
 
-    //Kind 类型归到哪一类 看接口标志与基类
+    //Kind classifies a type by its interface flag and base type
     private static string Kind(MetadataReader reader, TypeDefinition type)
     {
         if ((type.Attributes & TypeAttributes.Interface) != 0) return "interface";
@@ -438,7 +438,7 @@ internal static class AsmTool
         };
     }
 
-    //FullName 带命名空间的全名 嵌套类型用 / 连接
+    //FullName the full name including the namespace, nested types joined with /
     private static string FullName(MetadataReader reader, TypeDefinition type)
     {
         var name = reader.GetString(type.Name);
@@ -448,14 +448,14 @@ internal static class AsmTool
         return space.Length == 0 ? name : space + "." + name;
     }
 
-    //ShortName 全名的最后一段 嵌套类型只看最内层
+    //ShortName the last segment of a full name, nested types only show the innermost part
     private static string ShortName(string full)
     {
         var index = full.LastIndexOfAny(new[] { '.', '/' });
         return index < 0 ? full : full[(index + 1)..];
     }
 
-    //BaseName 基类的名字 定义与引用两种句柄都认 认不出给空
+    //BaseName the base type name resolved from either a definition or a reference handle, empty when unknown
     private static string BaseName(MetadataReader reader, EntityHandle handle)
         => handle.Kind switch
         {
@@ -464,7 +464,7 @@ internal static class AsmTool
             _ => string.Empty,
         };
 
-    //TypeReferenceName 引用类型的名字
+    //TypeReferenceName the name of a referenced type
     private static string TypeReferenceName(MetadataReader reader, TypeReferenceHandle handle)
     {
         var reference = reader.GetTypeReference(handle);
@@ -473,7 +473,7 @@ internal static class AsmTool
         return space.Length == 0 ? name : space + "." + name;
     }
 
-    //Signature 一个方法的可读签名 参数名从参数表里取
+    //Signature a readable method signature with parameter names taken from the parameter table
     private static string Signature(MetadataReader reader, NameProvider provider, MethodDefinitionHandle handle)
     {
         var method = reader.GetMethodDefinition(handle);
@@ -487,7 +487,7 @@ internal static class AsmTool
         return $"{signature.ReturnType} {reader.GetString(method.Name)}({string.Join(", ", parameters)})";
     }
 
-    //NameProvider 把签名里的类型原样拼回 C# 写法
+    //NameProvider renders signature types back into C# spelling
     private sealed class NameProvider : ISignatureTypeProvider<string, object?>
     {
         public string GetArrayType(string elementType, ArrayShape shape)
@@ -524,7 +524,7 @@ internal static class AsmTool
             => reader.GetTypeSpecification(handle).DecodeSignature(this, genericContext);
     }
 
-    //Primitive 基元类型码换成 C# 关键字
+    //Primitive maps a primitive type code to its C# keyword
     private static string Primitive(PrimitiveTypeCode code) => code switch
     {
         PrimitiveTypeCode.Boolean => "bool",

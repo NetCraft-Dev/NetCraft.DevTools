@@ -5,27 +5,25 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
 using NetCraft.ModBuild.Core;
 using NetCraft.ModBuild.Diagnostics;
-//两个 Diagnostic 与两个 DiagnosticSeverity 都重名 本地这套起别名区分
+//The two Diagnostic and two DiagnosticSeverity names clash, so the aliases below keep them apart
 using RoslynDiagnostic = Microsoft.CodeAnalysis.Diagnostic;
 using ProjectDiagnostic = NetCraft.ModBuild.Diagnostics.Diagnostic;
 using ProjectSeverity = NetCraft.ModBuild.Diagnostics.DiagnosticSeverity;
 
 namespace NetCraft.ModBuild.Compile;
 
-//Compiler 用 Roslyn 直接把项目编成模组程序集
-//不再经过 dotnet build 与 MSBuild 工程 产物与诊断都自己出
+//Compiles the project straight into a mod assembly with Roslyn, producing the output and diagnostics without dotnet build or MSBuild projects
 public static class Compiler
 {
-    //GeneratedPath 程序集信息那棵虚拟树 它自己的诊断不往外报
+    //Path of the virtual assembly info tree, whose diagnostics are never reported
     private const string GeneratedPath = "AssemblyInfo.g.cs";
 
-    //Compile 编出模组程序集 返回是否成功
-    //assemblyName 是产物名 target 是产物完整路径
+    //Compiles the mod assembly; assemblyName is the output name and target its full path
     public static bool Compile(string root, NcProject project, string assemblyName, string target, out string error)
     {
         error = string.Empty;
 
-        //先看要不要重编 比时间戳比整份装配便宜得多
+        //Check freshness first, since comparing timestamps is far cheaper than assembling a compilation
         if (Incremental.IsUpToDate(target, Inputs(root, project)))
         {
             Console.WriteLine($"Up to date, {target}");
@@ -38,7 +36,7 @@ public static class Compiler
 
         var compilation = AddAssemblyInfo(assembled, project, root, assemblyName);
 
-        //编译诊断先看一遍 有错就不必再写文件
+        //Look at compile diagnostics first so a failing build never writes files
         var errors = compilation.GetDiagnostics()
             .Where(diagnostic => diagnostic.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error
                 && diagnostic.Location.GetLineSpan().Path != GeneratedPath)
@@ -59,8 +57,7 @@ public static class Compiler
         return true;
     }
 
-    //Inputs 会影响这份产物的全部文件
-    //少列一个就可能拿着过期的 dll 去开服 所以宁可多算几个
+    //Every file that can affect this output; missing one risks serving a stale dll
     private static List<string> Inputs(string root, NcProject project)
     {
         var inputs = new List<string>(CompilationFactory.Inputs(root))
@@ -69,15 +66,15 @@ public static class Compiler
             Path.Combine(root, ModProject.ManifestName),
         };
 
-        //备齐的那几样也算输入 包换版本 内核换版本 包带的 targets 改过 产物就该重编
+        //The provisioned folders count too, since a new package, kernel or package targets should trigger a rebuild
         inputs.AddRange(Files(root, ProjectLayout.Packages));
         inputs.AddRange(Files(root, ProjectLayout.Kernel));
         inputs.AddRange(Files(root, ProjectLayout.Targets));
 
-        //Avalonia 那批资源也要盯 它们不打进产物之外的地方 变了没人会替我们重编
+        //Avalonia resources live only inside this output, so nothing else would rebuild them when they change
         inputs.AddRange(AvaloniaResources.Inputs(root, project.AvaloniaResources));
 
-        //配置里声明的内嵌资源同理 只在这份产物里出现
+        //Same for the embedded resources declared in the config, which appear only in this output
         inputs.AddRange(Embedded(root, project).Select(item => item.Path));
 
         var icon = ModProject.TryFind(root)?.IconPath;
@@ -87,7 +84,7 @@ public static class Compiler
         return inputs;
     }
 
-    //Files 目录下的全部文件 目录不在就当空
+    //All files under the directory, or empty when it is missing
     private static IEnumerable<string> Files(string root, string relative)
     {
         var directory = Path.Combine(root, relative);
@@ -96,8 +93,7 @@ public static class Compiler
             : [];
     }
 
-    //AddAssemblyInfo 把程序集信息那棵树补上
-    //SDK 原先自动生成的那些缺了会导致版本与目标框架信息不全
+    //Adds the assembly info tree the SDK used to generate, without which version and target framework metadata is incomplete
     private static Compilation AddAssemblyInfo(ProjectCompilation assembled, NcProject project, string root,
         string assemblyName)
     {
@@ -125,12 +121,11 @@ public static class Compiler
         return assembled.Compilation.AddSyntaxTrees(tree);
     }
 
-    //Friends InternalsVisibleTo 那几行
     private static string Friends(NcProject project)
         => string.Join(Environment.NewLine, project.InternalsVisibleTo
             .Select(name => $"[assembly: InternalsVisibleTo(\"{Escape(name)}\")]"));
 
-    //Emit 写出程序集与符号文件 先落临时文件 成功了再挪过去
+    //Writes the assembly and symbols through temp files that are only moved into place on success
     private static bool Emit(Compilation compilation, NcProject project, string root, string target, out string error)
     {
         error = string.Empty;
@@ -174,16 +169,15 @@ public static class Compiler
         }
     }
 
-    //Resources 要嵌进程序集的资源
-    //数据清单是加载器认模组的唯一依据 图标按清单指的来
-    //第三方依赖也要带上 模组分发出去只有这一个 dll 加载器解析不到时会从内嵌资源里找
-    //Avalonia 那批另打成一个包 avares:// 那条路只认它
+    //Resources to embed; the manifest is the loader's only way to recognize a mod and it points at the icon
+    //Third party dependencies ride along because a distributed mod is one dll and the loader falls back to embedded resources for anything missing
+    //Avalonia resources become their own package, the only form avares:// resolves
     private static List<ResourceDescription> Resources(string root, NcProject project)
     {
         var resources = new List<ResourceDescription>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        //重名资源会让 emit 直接失败 同名只留先来的那个
+        //Duplicate resource names fail emit outright, so the first one wins
         void Add(string name, Func<Stream> open)
         {
             if (seen.Add(name))
@@ -215,7 +209,7 @@ public static class Compiler
                 Add(AvaloniaResources.ResourceName, () => new MemoryStream(packed, writable: false));
         }
 
-        //配置里声明的普通资源 名字取 LogicalName 没写的按 csproj 的规矩折
+        //Ordinary resources from the config use LogicalName when given, otherwise the csproj naming rule applies
         foreach (var item in Embedded(root, project))
         {
             var name = item.LogicalName.Length > 0 ? item.LogicalName : DefaultName(root, project, item.Path);
@@ -232,7 +226,7 @@ public static class Compiler
         return resources;
     }
 
-    //Embedded 展开 <EmbeddedResources> 里声明的资源 一份都没匹配上时提醒一句
+    //Expands the resources declared in <EmbeddedResources> and warns when a pattern matches nothing
     private static List<ExpandedResource> Embedded(string root, NcProject project)
     {
         var found = new List<ExpandedResource>();
@@ -252,11 +246,10 @@ public static class Compiler
         return found;
     }
 
-    //ExpandedResource 匹配出来的一条资源 名字可能还空着等调用方折
+    //A matched resource whose name may still be empty for the caller to derive
     private sealed record ExpandedResource(string Path, string LogicalName);
 
-    //DefaultName 没写 LogicalName 时按 csproj 的规矩算资源名
-    //根命名空间加相对路径 项目外的文件算不出来
+    //Derives the resource name from root namespace plus relative path, which is impossible for files outside the project
     private static string? DefaultName(string root, NcProject project, string path)
     {
         var relative = Path.GetRelativePath(root, path);
@@ -273,7 +266,7 @@ public static class Compiler
         return prefix.Length > 0 ? prefix + "." + name : name;
     }
 
-    //ToDiagnostics 把 Roslyn 的诊断换成项目那套 好与检查那边的输出长得一样
+    //Converts Roslyn diagnostics into the project's own type so the output matches the check path
     private static List<ProjectDiagnostic> ToDiagnostics(IEnumerable<RoslynDiagnostic> diagnostics, string root)
     {
         var items = new List<ProjectDiagnostic>();
@@ -300,7 +293,7 @@ public static class Compiler
         return items;
     }
 
-    //SourceLine 取某一行源码 取不到就空着
+    //Reads the source line, returning empty when unavailable
     private static string SourceLine(string path, int line)
     {
         if (string.IsNullOrEmpty(path) || path == GeneratedPath)
@@ -318,8 +311,7 @@ public static class Compiler
         }
     }
 
-    //AssemblyVersionOf 版本号换成四段式
-    //1.2.3 补成 1.2.3.0 带后缀的只取前面数字那几段
+    //Pads to four numeric segments, so 1.2.3 becomes 1.2.3.0 and suffixes are dropped
     private static string AssemblyVersionOf(string version)
     {
         var parts = new List<string>();
@@ -338,7 +330,6 @@ public static class Compiler
         return string.Join('.', parts);
     }
 
-    //TargetFramework 当前运行的目标框架名
     private static string TargetFramework()
     {
         const string marker = "Version=v";
@@ -347,11 +338,10 @@ public static class Compiler
         return index < 0 ? "net10.0" : "net" + name[(index + marker.Length)..];
     }
 
-    //Escape 特性参数里的双引号与反斜杠要转义 不然源码直接坏掉
+    //Escapes quotes and backslashes because attribute arguments sit inside a string literal
     private static string Escape(string value)
         => value.Replace("\\", "\\\\").Replace("\"", "\\\"");
 
-    //Discard 临时文件没用了就删掉
     private static void Discard(string path)
     {
         try
@@ -361,7 +351,7 @@ public static class Compiler
         }
         catch (IOException)
         {
-            //删不掉也不影响结果 下次覆盖
+            //A failed delete is harmless since the next run overwrites the file
         }
     }
 }

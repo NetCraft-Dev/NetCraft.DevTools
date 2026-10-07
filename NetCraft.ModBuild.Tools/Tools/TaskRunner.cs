@@ -6,25 +6,24 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using NetCraft.ModBuild.Core;
 
-//System.Diagnostics 也带一个 Trace 这里点明用项目自己的那个
+//System.Diagnostics also has a Trace, so alias the project's own here
 using Trace = NetCraft.ModBuild.Core.Trace;
 
 namespace NetCraft.ModBuild.Tools;
 
-//TaskRunner 跑项目配置里定义的任务
-//先把前置任务按依赖排好 再一个个跑 有一条命令失败就停
+//TaskRunner runs the tasks defined in the project config
+//It orders the dependencies first, then runs them one by one and stops at the first failing command
 internal static class TaskRunner
 {
-    //ApprovalsDirectory 确认记录落在项目根的 obj 下 那是构建产物目录 清掉就重新问一次
+    //ApprovalsDirectory holds the approval records under obj in the project root, so cleaning the build output resets the prompts
     private const string ApprovalsDirectory = "obj";
 
-    //ApprovalsFileName 确认记录的文件名
     private const string ApprovalsFileName = "task-approvals.json";
 
-    //Variable 命令行里 $(Name) 与 $(env:Name) 的写法
+    //Variable matches the $(Name) and $(env:Name) forms in a command line
     private static readonly Regex Variable = new(@"\$\((env:)?([A-Za-z_][A-Za-z0-9_]*)\)", RegexOptions.Compiled);
 
-    //Run 跑一个任务 连它的前置一起 返回进程退出码
+    //Run runs a task together with its dependencies and returns the process exit code
     public static int Run(NcProject project, NcTask task)
     {
         var order = Order(project, task, out var error);
@@ -34,8 +33,8 @@ internal static class TaskRunner
             return 1;
         }
 
-        //带 Override 的任务能顶掉内置命令 也就等于克隆来的项目可以让你跑任意东西
-        //所以每条要跑的命令都得先让人看过
+        //A task with Override can replace a built-in tool, which lets a cloned project run arbitrary commands
+        //Every such command has to be approved first
         foreach (var current in order)
         {
             if (current.Overrides && !Approved(project, current))
@@ -58,7 +57,7 @@ internal static class TaskRunner
         return 0;
     }
 
-    //Step 跑一个步骤 认不出来的种类在解析那一步就被挡掉了
+    //Step runs one step, unknown kinds are already rejected during parsing
     private static bool Step(NcStep step, IReadOnlyDictionary<string, string> variables, string root)
     {
         if (step.Kind == NcStepKind.Exec)
@@ -74,9 +73,9 @@ internal static class TaskRunner
         return step.Kind == NcStepKind.Copy ? Copy(root, from, to) : Zip(root, from, to);
     }
 
-    //Copy 把匹配到的文件复制到目标
-    //To 以分隔符收尾 匹配到多个 或已经是个目录时当目录 其余按单个目标文件
-    //目录模式下保留相对模式基准那一层结构 子目录里的同名文件不会互相盖掉
+    //Copy copies the matched files to the target
+    //To counts as a directory when it ends with a separator, matches several files or already exists, otherwise as a single file
+    //Directory mode keeps the structure below the pattern base so same-named files in subfolders do not overwrite each other
     private static bool Copy(string root, string from, string to)
     {
         var files = PathPattern.Match(root, from).ToList();
@@ -111,8 +110,8 @@ internal static class TaskRunner
         return true;
     }
 
-    //Zip 把源目录整棵压成一个 zip
-    //目标那个文件本身要跳过 常有人把它写在源目录里 上一次留的那份会被卷进去
+    //Zip packs the whole source directory into a zip
+    //The target file itself is skipped, since it is often placed inside the source directory and the previous one would be included
     private static bool Zip(string root, string from, string to)
     {
         var source = Path.GetFullPath(Path.Combine(root, from));
@@ -150,8 +149,8 @@ internal static class TaskRunner
         }
     }
 
-    //BaseOf 模式里通配符之前那一段就是基准 与 PathPattern 取基准的规则一致
-    //算出来好把命中文件折成相对它那一段的路径
+    //BaseOf is the part of the pattern before the first wildcard, matching how PathPattern picks its base
+    //It lets matched files be expressed relative to that base
     private static string BaseOf(string root, string from)
     {
         var normalized = from.Replace('\\', '/').TrimStart('/');
@@ -166,11 +165,11 @@ internal static class TaskRunner
         return slash <= 0 ? root : Path.GetFullPath(Path.Combine(root, normalized[..slash]));
     }
 
-    //EndsWithSeparator 这个写法是不是在指一个目录
+    //EndsWithSeparator tells whether the value denotes a directory
     private static bool EndsWithSeparator(string value)
         => value.EndsWith('/') || value.EndsWith('\\');
 
-    //Order 按 Depends 把要跑的任务排成一条链 有环或者前置不存在就报错
+    //Order sorts the tasks into a chain by Depends and fails on a cycle or a missing dependency
     private static List<NcTask>? Order(NcProject project, NcTask task, out string error)
     {
         var ordered = new List<NcTask>();
@@ -218,8 +217,8 @@ internal static class TaskRunner
         }
     }
 
-    //Variables 命令行里能插的值
-    //mod 那几个来自数据清单 项目自己不该再定义一份 两边对不上只会更难查
+    //Variables are the values that can be interpolated into a command line
+    //The mod values come from the manifest and must not be redefined in the project, since a mismatch is hard to trace
     private static Dictionary<string, string> Variables(NcProject project)
     {
         var values = new Dictionary<string, string>(StringComparer.Ordinal)
@@ -238,7 +237,7 @@ internal static class TaskRunner
         return values;
     }
 
-    //Interpolate 把 $(Name) 换成实际值 认不出来的原样留着 免得悄悄少一段
+    //Interpolate replaces $(Name) with its value and leaves unknown names as is instead of silently dropping text
     private static string Interpolate(string text, IReadOnlyDictionary<string, string> variables)
         => Variable.Replace(text, match =>
         {
@@ -253,8 +252,8 @@ internal static class TaskRunner
             return match.Value;
         });
 
-    //Approved 带 Override 的任务只放行一次确认过的内容
-    //命令改过就重新问 免得确认完再被换掉
+    //Approved only lets an overriding task run when its content was confirmed once
+    //A changed command asks again, so an approval cannot be swapped out afterwards
     private static bool Approved(NcProject project, NcTask task)
     {
         var fingerprint = Fingerprint(task);
@@ -263,7 +262,7 @@ internal static class TaskRunner
             && string.Equals(known, fingerprint, StringComparison.Ordinal))
             return true;
 
-        //问不了就不能放行 陌生仓库里这么一条命令不该在没人看着的时候跑
+        //When there is no way to ask it refuses, since such a command in an unknown repo should not run unattended
         if (Console.IsInputRedirected || Console.IsOutputRedirected)
         {
             Console.WriteLine(
@@ -288,16 +287,16 @@ internal static class TaskRunner
         return true;
     }
 
-    //Fingerprint 任务内容的指纹 步骤变了就不是同一个任务了
+    //Fingerprint is the task content hash, so changed steps mean a different task
     private static string Fingerprint(NcTask task)
         => Convert.ToHexStringLower(
             SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', task.Steps.Select(step => step.Text)))));
 
-    //ApprovalsPath 确认记录的位置
+    //ApprovalsPath is the location of the approval records
     private static string ApprovalsPath(NcProject project)
         => Path.Combine(project.Directory, ApprovalsDirectory, ApprovalsFileName);
 
-    //ReadApprovals 读确认记录 读不出来当没记录
+    //ReadApprovals loads the approval records and treats unreadable ones as empty
     private static Dictionary<string, string> ReadApprovals(NcProject project)
     {
         var path = ApprovalsPath(project);
@@ -316,7 +315,7 @@ internal static class TaskRunner
         }
     }
 
-    //WriteApprovals 写回确认记录 写不进去也不该拦住任务
+    //WriteApprovals saves the approval records, and a failed write must not block the task
     private static void WriteApprovals(NcProject project, Dictionary<string, string> approvals)
     {
         var path = ApprovalsPath(project);
@@ -331,7 +330,7 @@ internal static class TaskRunner
         }
     }
 
-    //Execute 交给系统 shell 跑一条命令 工作目录固定项目根
+    //Execute runs a command through the system shell with the project root as the working directory
     private static bool Execute(string command, string workingDirectory)
     {
         var startInfo = new ProcessStartInfo
@@ -342,7 +341,7 @@ internal static class TaskRunner
 
         if (OperatingSystem.IsWindows())
         {
-            //cmd 有自己的引号规则 交给 .NET 转义反而会坏掉 整串丢给它
+            //cmd has its own quoting rules, so the whole line goes to it rather than through .NET escaping
             startInfo.FileName = "cmd.exe";
             startInfo.Arguments = "/c " + command;
         }

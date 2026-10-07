@@ -4,17 +4,17 @@ using NetCraft.ModBuild.Tools;
 
 namespace NetCraft.ModBuild;
 
-//Program 主入口 第一个参数是工具名 不带参数或认不出一律打印帮助
+//Main entry point, the first argument is the tool name and a missing or unrecognized one prints help
 public static class Program
 {
-    //窗口要求 STA 线程 少了这一条在 Windows 上连窗都起不来
+    //Required by the windowing code, the window cannot even start on Windows without it
     [STAThread]
     public static int Main(string[] args)
     {
-        //引擎要从本机 sdk 目录取 解析事件得赶在第一个 msbuild 类型被加载之前挂上
+        //The engine comes from the local sdk, and the resolve event must be hooked before the first msbuild type loads
         MsBuildLibrary.Attach(out _);
 
-        //加新工具在这里补一行登记
+        //Register a new tool with one line here
         IconTool.Register();
         InitTool.Register();
         TemplateTool.Register();
@@ -33,7 +33,7 @@ public static class Program
             return 0;
         }
 
-        //help 后面跟工具名就看那一个工具的参数 不带就跟整个列表
+        //`help <tool>` shows that tool's arguments, bare `help` shows the full list
         if (args[0] is "help" or "--help" or "-h")
         {
             if (args.Length > 1)
@@ -43,8 +43,8 @@ public static class Program
             return 0;
         }
 
-        //项目任务先按精确名字找 内置工具再按宽松方式兜底
-        //于是任务叫 Build 与内置的 build 两不相干 各自都还能用
+        //Project tasks are matched by exact name first and built-in tools only as a loose fallback
+        //So a task named Build and the built-in build stay independent and both keep working
         var project = NcProject.TryFind(Environment.CurrentDirectory, out var configError);
         if (!string.IsNullOrEmpty(configError))
         {
@@ -55,13 +55,13 @@ public static class Program
         return Dispatch(args[0], args[1..], project);
     }
 
-    //Dispatch 按名字找活干 项目任务优先于内置工具
+    //Resolves work by name, with project tasks taking priority over built-in tools
     private static int Dispatch(string name, string[] rest, NcProject? project)
     {
         var task = project?.FindTask(name);
         if (task is not null)
         {
-            //任务参数还没做 收着不报错 但得让人知道没生效
+            //Task arguments are not implemented yet, so they are accepted without error but reported as ignored
             if (rest.Length > 0)
                 Console.WriteLine($"note: task arguments are not supported yet, {rest.Length} argument(s) ignored");
 
@@ -72,7 +72,7 @@ public static class Program
         if (tool is null)
             return Unknown(name, rest, project);
 
-        //子命令写错也提一句 只修工具名那一层等于修一半
+        //A misspelled subcommand gets a suggestion too, since fixing only the tool name would be half a fix
         var repaired = RepairSub(tool, rest);
         if (repaired is not null && AskSub(name, rest[0], repaired[0]))
             return tool.Run(repaired);
@@ -80,8 +80,8 @@ public static class Program
         return tool.Run(rest);
     }
 
-    //RepairSub 子命令写错时换成相近的那个 换不动返回 null
-    //选项与位置参数不在这里管 工具的用法表里的那种写法认不出子命令
+    //Suggests a close subcommand, returning null when none fits
+    //Options and positional arguments are out of scope because the usage text cannot tell them apart from a subcommand
     private static string[]? RepairSub(ToolEntry tool, string[] rest)
     {
         if (rest.Length == 0 || rest[0].StartsWith('-'))
@@ -96,8 +96,8 @@ public static class Program
         return repaired;
     }
 
-    //AskSub 报一句子命令没认出来 再问一句要不要照着改的跑
-    //输入被重定向时一声不吭 交给工具自己去报错 免得脚本里冒出没人应答的问句
+    //Reports an unknown subcommand and offers to run the suggested one
+    //Stays silent when input is redirected so scripts never hit an unanswered prompt
     private static bool AskSub(string tool, string written, string suggestion)
     {
         if (Console.IsInputRedirected)
@@ -111,9 +111,9 @@ public static class Program
         return Prompt.Confirm($"Run \"ncm {tool} {suggestion}\" instead?", defaultYes: true, warn: true);
     }
 
-    //Unknown 没认出来的名字 红色报一句 挑得出相近的就问一句要不要照那个跑
-    //工具名修对了 后面的子命令照它的用法表也修一道 免得只修一半
-    //输入被重定向时问不了 只把建议打出来 免得在脚本里替人做决定
+    //Reports an unrecognized name in red and offers a close match when there is one
+    //Repairs the subcommand too, so only half the command is not fixed
+    //Prints the suggestion when input is redirected instead of deciding for a script
     private static int Unknown(string name, string[] rest, NcProject? project)
     {
         var suggestion = Similarity.Closest(name, Help.Candidates(project));

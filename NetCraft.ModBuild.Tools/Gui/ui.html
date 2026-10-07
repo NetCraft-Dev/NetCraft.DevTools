@@ -27,7 +27,7 @@
     background: #fff;
   }
 
-  /* 滚动条自己画 默认那条又宽又抢眼 */
+  /* Custom scrollbar because the default one is wide and distracting */
   ::-webkit-scrollbar { width: 10px; height: 10px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb {
@@ -188,10 +188,10 @@ const bySymbol = {};
 const usageItems = DATA.usage || [];
 usageItems.forEach(function (item) { bySymbol[item.symbol] = item; });
 
-// 有问题的排前面 后端也是这个顺序 两边保持一致
+// Problems are listed first, and the backend uses the same order, so keep both in sync
 function isProblem(item) { return item.state !== 'ok'; }
 
-// renderLegend 顶上那行统计 没扫到东西时什么都不显示
+// renderLegend fills the summary line at the top and renders nothing when nothing was scanned
 function renderLegend() {
   legendEl.textContent = '';
   if (usageItems.length === 0) return;
@@ -210,8 +210,7 @@ function renderLegend() {
   });
 }
 
-// renderSidebar 侧边栏列项目里用到的 api
-// 没扫到东西就整条侧边栏收起来 页面直接是文档
+// renderSidebar lists the mod APIs used by the project and hides the whole sidebar when nothing was scanned, leaving just the document
 function renderSidebar() {
   if (usageItems.length === 0) {
     sideEl.style.display = 'none';
@@ -233,7 +232,7 @@ function renderSidebar() {
     sym.title = STATE_TEXT[item.state];
     node.appendChild(sym);
 
-    // 用对的没什么可展开 只给有问题的挂点击
+    // Correct usages have nothing to expand, so only problems are clickable
     if (isProblem(item)) {
       node.onclick = function () { showDetail(item.symbol); };
     }
@@ -242,14 +241,14 @@ function renderSidebar() {
   });
 }
 
-// markActive 侧边栏里选中状态 只有可点击的项才有
+// markActive highlights the selected sidebar entry, which only clickable items have
 function markActive(symbol) {
   document.querySelectorAll('.usage').forEach(function (node) {
     node.classList.toggle('active', node.dataset.symbol === symbol);
   });
 }
 
-// appendHit 把一行源码里的目标符号单独包一层 出错的地方一眼看到
+// appendHit wraps the target symbol in a source line so the problem stands out
 function appendHit(code, text, symbol, state) {
   const index = text.indexOf(symbol);
   if (index < 0) {
@@ -265,7 +264,6 @@ function appendHit(code, text, symbol, state) {
   code.appendChild(document.createTextNode(text.slice(index + symbol.length)));
 }
 
-// leadParagraph 把带 code 的说明拼成一段
 function leadParagraph(parts) {
   const p = document.createElement('p');
   p.className = 'detail-lead';
@@ -283,7 +281,7 @@ function leadParagraph(parts) {
   return p;
 }
 
-// renderDetail 出错用法的详情 源码位置加修复提示
+// renderDetail shows a broken usage with its source locations and a suggested fix
 function renderDetail(item) {
   detailEl.textContent = '';
 
@@ -366,7 +364,6 @@ function renderDetail(item) {
   detailEl.appendChild(list);
 }
 
-// showDetail 展开一条有问题的用法
 function showDetail(symbol) {
   const item = bySymbol[symbol];
   if (!item || !isProblem(item)) return;
@@ -378,8 +375,7 @@ function showDetail(symbol) {
   markActive(symbol);
 }
 
-// highlightUsage 给文档里出现的模组 api 符号上色
-// 只认项目源码里真的用过的那批 表是空的就什么都不动
+// highlightUsage colors mod API symbols in the document, but only the ones the project actually uses, and does nothing when the table is empty
 function highlightUsage(root) {
   if (usageItems.length === 0) return;
 
@@ -421,7 +417,6 @@ function highlightUsage(root) {
   });
 }
 
-// showDocument 回到文档视图
 function showDocument() {
   detailEl.style.display = 'none';
   docEl.style.display = 'block';

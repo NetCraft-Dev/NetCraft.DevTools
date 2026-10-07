@@ -2,12 +2,12 @@ using NetCraft.ModBuild.Core;
 
 namespace NetCraft.ModBuild.Tools;
 
-//KernelStore 项目里的内核引用程序集
-//来源与服务端那份是同一处 复用同一套缓存与下载 只是落到项目里
+//KernelStore the kernel reference assemblies in a project
+//They come from the same place as the server copy, reusing the same cache and download, just placed in the project
 internal static class KernelStore
 {
-    //Sync 保证内核引用齐备 返回是否可用
-    //内核齐了直编才有得引 少一个整片源码都会说找不到类型
+    //Sync makes sure the kernel references are complete and reports whether they are usable
+    //The direct build can only compile against a complete kernel, a single missing assembly makes the whole source report missing types
     public static bool Sync(string root, NcProject? project)
     {
         var destination = Path.Combine(root, ProjectLayout.Kernel);
@@ -21,7 +21,7 @@ internal static class KernelStore
         if (!ServerStore.Ensure())
             return false;
 
-        //模组接口在加载器那个程序集里 编译引用要带上它
+        //The mod api lives in the loader assembly, so the compile reference must include it
         ServerLauncher.SyncKernel(ServerStore.Root, destination, includeModLoader: true);
         if (HasAssemblies(destination))
             return true;
@@ -30,9 +30,9 @@ internal static class KernelStore
         return false;
     }
 
-    //HasAssemblies 目录里的内核程序集齐不齐
-    //根程序集 NetCraft.dll 单独算一样 设置与启动参数那批类型都在它里面
-    //只有带点的那些子程序集算不齐 老目录会被认出来重新同步一遍
+    //HasAssemblies whether the kernel assemblies in a directory are complete
+    //The root assembly NetCraft.dll counts on its own and holds the settings and launch argument types
+    //Only the dotted sub assemblies decide completeness, so an old directory is detected and synced again
     private static bool HasAssemblies(string directory)
         => Directory.Exists(directory)
             && File.Exists(Path.Combine(directory, "NetCraft.dll"))

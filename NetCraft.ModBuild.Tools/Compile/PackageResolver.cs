@@ -10,27 +10,24 @@ using NuGet.Versioning;
 
 namespace NetCraft.ModBuild.Compile;
 
-//PackageResolver 按配置里的包声明解析依赖并还原到目录
-//复用全局包缓存 缓存里没有才联网 版本按传递依赖与版本区间一起定
-//落点固定 编译与打包都直接扫落点 不另记清单
+//Resolves the packages declared in the config and restores them into a directory
+//Reuses the global package cache and only goes online on a miss, with versions decided by transitive dependencies and ranges
+//The target is fixed so compile and pack scan it directly instead of tracking a manifest
 public static class PackageResolver
 {
-    //Root ncm 自己那份包缓存 全局缓存里没命中的包下到这里 下次不必再下
+    //ncm's own package cache where global cache misses land, so they are not downloaded twice
     private static string Root => CacheLayout.Packages;
 
-    //CacheRoot ncm 自己那份包缓存 清理时要用
     public static string CacheRoot => Root;
 
-    //Source 打包源
     private const string Source = "https://api.nuget.org/v3/index.json";
 
-    //Rounds 依赖图迭代上限 版本之间互相拉扯时总得有个停的地方
+    //Iteration cap for the dependency graph, which needs a stopping point when versions pull against each other
     private const int Rounds = 16;
 
     private static readonly ILogger Logger = NullLogger.Instance;
 
-    //Restore 解析并还原 返回是否成功
-    //target 是还原目录 每个包在它下面占一个以包 id 命名的子目录
+    //Resolves and restores; target is the restore directory where each package takes a subdirectory named after its id
     public static bool Restore(NcProject project, string target, out string error)
     {
         error = string.Empty;
@@ -77,8 +74,8 @@ public static class PackageResolver
             var files = Copy(directory, id, target);
             var analyzers = CopyAnalyzers(directory, id, target);
 
-            //包带的 props 与 targets 顺手收进项目 构建时就不再依赖包缓存
-            //配置里点名的是直接依赖 看 build 其余是传递依赖 看 buildTransitive
+            //Collect the package's props and targets into the project so building no longer depends on the package cache
+            //Packages named in the config are direct and read build, the rest are transitive and read buildTransitive
             var direct = project.Packages.Any(item =>
                 string.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase));
             var collected = PackageTargets.Collect(project.Directory, directory, id, direct);
@@ -89,7 +86,6 @@ public static class PackageResolver
         return (true, string.Empty);
     }
 
-    //Summarize 一个包落下了什么
     private static string Summarize(int assemblies, int analyzers, int targets)
     {
         var parts = new List<string> { $"{assemblies} assembly(ies)" };
@@ -101,8 +97,7 @@ public static class PackageResolver
         return "(" + string.Join(", ", parts) + ")";
     }
 
-    //ResolveAsync 把声明的包连传递依赖一起定下版本
-    //同一个包被要求过多个版本区间时就取能同时满足它们的最高版本 反复几轮直到不再变
+    //Picks a version for the declared packages and their transitive dependencies, taking the highest version that satisfies every requested range and iterating until stable
     private static async Task<Dictionary<string, NuGetVersion>?> ResolveAsync(NcProject project,
         FindPackageByIdResource finder, SourceCacheContext cache)
     {
@@ -136,8 +131,7 @@ public static class PackageResolver
                 var versions = await finder.GetAllVersionsAsync(id, cache, Logger, default).ConfigureAwait(false) ?? [];
                 var candidates = versions.Where(candidate => ranges.All(range => range.Satisfies(candidate))).ToList();
 
-                //没写版本的取最新 写了就取满足区间的最低版本
-                //这与 NuGet 一致 声明 13.0.3 认作 [13.0.3,) 落下来的正是 13.0.3 不会跳到更高的大版本
+                //A missing version takes the latest while an explicit one takes the lowest satisfying version, matching NuGet where 13.0.3 means [13.0.3,)
                 var version = ranges.All(range => range.Equals(VersionRange.All))
                     ? candidates.Max()
                     : candidates.Min();
@@ -150,7 +144,7 @@ public static class PackageResolver
 
                 chosen[id] = version;
 
-                //同一版本依赖只需展开一次 展开过就跳过 否则会一直绕
+                //Each dependency version expands once, otherwise the graph would keep looping
                 if (expanded.TryGetValue(id, out var done) && done == version)
                     continue;
 
@@ -169,7 +163,7 @@ public static class PackageResolver
         return chosen;
     }
 
-    //Dependencies 挑出与目标框架最贴合的那组依赖
+    //Picks the dependency group closest to the target framework
     private static IEnumerable<PackageDependency> Dependencies(FindPackageByIdDependencyInfo info,
         NuGetFramework framework)
     {
@@ -190,7 +184,6 @@ public static class PackageResolver
             yield return dependency;
     }
 
-    //Constrain 给某个包再加一条版本约束
     private static void Constrain(Dictionary<string, List<VersionRange>> constraints, string id, VersionRange range)
     {
         if (!constraints.TryGetValue(id, out var ranges))
@@ -203,8 +196,7 @@ public static class PackageResolver
             ranges.Add(range);
     }
 
-    //EnsureAsync 弄到一份能读到程序集的包目录
-    //全局缓存里有就直接用 平时 dotnet build 攒下的包大多能命中 没有才下到 ncm 自己那份缓存
+    //Produces a package directory with readable assemblies, preferring the global cache that dotnet build usually fills and downloading into ncm's own cache on a miss
     private static async Task<string?> EnsureAsync(FindPackageByIdResource finder, string id, NuGetVersion version,
         string globalFolder, SourceCacheContext cache)
     {
@@ -226,11 +218,9 @@ public static class PackageResolver
         return null;
     }
 
-    //HasAssemblies 目录里有没有可用的程序集
     private static bool HasAssemblies(string directory)
         => Directory.Exists(Path.Combine(directory, "lib")) || Directory.Exists(Path.Combine(directory, "ref"));
 
-    //DownloadAsync 下一个包并把它解出来
     private static async Task<bool> DownloadAsync(FindPackageByIdResource finder, string id, NuGetVersion version,
         string directory, SourceCacheContext cache)
     {
@@ -257,8 +247,7 @@ public static class PackageResolver
         }
     }
 
-    //Extract 把包里 lib 与 ref 下的程序集按原结构解到目标目录
-    //只留这两处 其余内容模组用不上
+    //Extracts the lib and ref assemblies keeping their layout, the only parts a mod needs
     private static void Extract(string archive, string directory)
     {
         using var reader = new PackageArchiveReader(archive);
@@ -280,7 +269,6 @@ public static class PackageResolver
         }
     }
 
-    //Discard 临时包文件没用了就删掉
     private static void Discard(string path)
     {
         try
@@ -290,11 +278,10 @@ public static class PackageResolver
         }
         catch (IOException)
         {
-            //删不掉不影响结果
         }
     }
 
-    //Copy 把包里的程序集按包名收进还原目录 返回落下的文件完整路径
+    //Copies the package assemblies under a directory named after the package and returns their full paths
     private static List<string> Copy(string packageDirectory, string id, string target)
     {
         var source = Choose(packageDirectory);
@@ -325,8 +312,7 @@ public static class PackageResolver
         return files;
     }
 
-    //Choose 包目录里该拿哪一份程序集
-    //lib/<框架> 下挑离目标框架最近的那个 包只带引用程序集时退回 ref/<框架>
+    //Picks the lib framework closest to the target and falls back to ref when a package ships only reference assemblies
     private static List<string> Choose(string packageDirectory)
     {
         foreach (var kind in new[] { "lib", "ref" })
@@ -360,7 +346,6 @@ public static class PackageResolver
         return [];
     }
 
-    //GlobalPackagesFolder 全局包缓存目录
     private static string GlobalPackagesFolder()
     {
         var settings = Settings.LoadDefaultSettings(null);
@@ -370,8 +355,7 @@ public static class PackageResolver
             : folder;
     }
 
-    //CopyAnalyzers 把包带的生成器与分析器收进还原目录
-    //它们只在编译期用 但一起收进来项目就齐了 编译不必再回头翻包缓存
+    //Copies the package analyzers along with everything else so compilation never has to look back into the package cache
     private static int CopyAnalyzers(string packageDirectory, string id, string target)
     {
         var source = Path.Combine(packageDirectory, "analyzers");
@@ -398,8 +382,7 @@ public static class PackageResolver
         return copied;
     }
 
-    //Assemblies 还原目录里各包的程序集
-    //一个包占一层 只扫顶层 analyzers 那类子目录不该当引用带进来
+    //Package assemblies in the restore directory; only the top level of each package is scanned so analyzers are not pulled in as references
     public static IReadOnlyList<string> Assemblies(string root)
     {
         var directory = Path.Combine(root, ProjectLayout.Packages);
@@ -412,8 +395,7 @@ public static class PackageResolver
         return paths;
     }
 
-    //Analyzers 各包带的生成器与分析器程序集
-    //界面库的 x:Name 字段与 InitializeComponent 都是它们现产的 少了整片源码都报找不到名字
+    //Analyzer assemblies from every package; the UI x:Name fields and InitializeComponent come from them and would otherwise be missing
     public static IReadOnlyList<string> Analyzers(string root)
     {
         var directory = Path.Combine(root, ProjectLayout.Packages);

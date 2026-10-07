@@ -1,37 +1,31 @@
 namespace NetCraft.ModBuild.Core;
 
-//TemplateStore 模板资产的本地缓存
-//目录落在用户目录的缓存里 清单只有本地没有时才联网 示例文件同样缓存优先
+//Local cache of template assets under the user cache; the catalog only hits the network when missing locally and example files are cache-first too
 public static class TemplateStore
 {
-    //CatalogFileName 清单文件名
     public const string CatalogFileName = "NetCraftTemplate.yaml";
 
-    //DefaultCatalogUrl 内置的清单引导地址 只有本地还没有清单时才走它
+    //Built-in catalog bootstrap URL used only when no local catalog exists
     private const string DefaultCatalogUrl =
         "https://raw.githubusercontent.com/NetCraft-Dev/NetCraftTemplate/refs/heads/main/NetCraftTemplate.yaml";
 
-    //CatalogUrl 当前使用的清单地址 项目配置可以顶掉内置那个
-    //清单里的 base 是示例文件的基准 与这里不是一回事
+    //Catalog URL in use, which project config can override; the base inside the catalog is the example baseline and is a separate thing
     private static string CatalogUrl { get; set; } = DefaultCatalogUrl;
 
-    //BaseOverride 示例文件基准的覆盖 配了就拿它顶掉清单里写的那个
+    //Override for the example baseline that replaces the catalog's base when set
     private static string BaseOverride { get; set; } = string.Empty;
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(30) };
 
-    //Refresh 本次运行是否要求拿最新 置位后下载会绕开 CDN 那份陈旧副本
-    //静态是因为一次只跑一条命令 值在进工具时定下就不再变
+    //Whether this run wants the latest; setting it bypasses stale CDN copies, and the static value is fixed when the tool starts since one command runs per process
     public static bool Refresh { get; set; }
 
-    //Root 缓存目录 用户目录下的 Template 换 ncm 版本不受影响
+    //Cache directory under the user folder, unaffected by ncm version changes
     public static string Root => CacheLayout.Template;
 
-    //CatalogPath 清单的本地路径
     public static string CatalogPath => Path.Combine(Root, CatalogFileName);
 
-    //Configure 按项目配置调整来源 没配的项一律保持默认
-    //镜像那种前缀直接拼在原始地址前面 ncm 不做任何加工
+    //Adjust sources from project config, keeping defaults for anything unset; mirror prefixes are prepended verbatim and ncm adds no processing
     public static void Configure(NcProject? project)
     {
         var template = project?.Template;
@@ -44,7 +38,7 @@ public static class TemplateStore
         BaseOverride = template.Base;
     }
 
-    //LoadCatalog 读清单 本地没有先建目录拉一份
+    //Read the catalog, downloading one first when the local copy is absent
     public static TemplateCatalog? LoadCatalog()
     {
         if (!File.Exists(CatalogPath))
@@ -68,8 +62,7 @@ public static class TemplateStore
         return catalog;
     }
 
-    //FetchFile 取一份模板文件 本地有就用本地 没有才下载并写进缓存
-    //返回落盘的本地路径 失败返回 null 并填 error
+    //Fetch a template file preferring the local copy; returns the on-disk path, or null with error set on failure
     public static string? FetchFile(string url, string relative, out string error)
     {
         var target = ResolveCachePath(relative);
@@ -88,8 +81,7 @@ public static class TemplateStore
         return TryDownload(url, target, out error) ? target : null;
     }
 
-    //ResolveCachePath 把清单里的相对路径落到缓存目录内 越界返回 null
-    //清单来自网络 路径里带 .. 时不挡住就会写到缓存目录外面去
+    //Map a catalog-relative path inside the cache, returning null when it escapes; the catalog comes from the network so .. must be blocked to keep writes contained
     private static string? ResolveCachePath(string relative)
     {
         var normalized = relative.Replace('/', Path.DirectorySeparatorChar)
@@ -99,7 +91,7 @@ public static class TemplateStore
         return full.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? full : null;
     }
 
-    //TryDownload 下载到指定路径 先落临时文件再整体挪过去 半截内容不会留在缓存里
+    //Download to a path through a temp file moved in place so partial content never stays in the cache
     private static bool TryDownload(string url, string path, out string error)
     {
         try
@@ -119,10 +111,9 @@ public static class TemplateStore
         }
     }
 
-    //FreshUrl 要求拿最新时换一条能绕开 CDN 陈旧缓存的地址
-    //raw.githubusercontent.com 那份缓存既不认 no-cache 也不认查询参数 刚推上去的内容要等它自己过期
-    //走 github.com 的 raw 路径会被 302 到带临时 token 的地址 那个地址只在这一次有效 必然是新的
-    //不是 GitHub raw 的地址原样返回 那份缓存不归我们管
+    //Swap in a URL that bypasses the stale CDN copy when the latest is required
+    //raw.githubusercontent.com honors neither no-cache nor query parameters, while the github.com raw path redirects to a temporary-token URL that is always fresh
+    //Non-GitHub raw URLs pass through untouched since their caching is not ours to manage
     private static string FreshUrl(string url)
     {
         const string host = "https://raw.githubusercontent.com/";

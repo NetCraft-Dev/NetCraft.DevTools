@@ -1,8 +1,8 @@
 #!/usr/bin/env sh
-# NetCraft 开发工具链一键安装（Linux）
-# 装三样 .NET 10 SDK dotnet new 项目模板 ncm 命令行工具
-# 幂等 已经有的会跳过或就地更新 重复跑不会出问题
-# 用法 ./tools/install-linux.sh
+# One-shot installer for the NetCraft development toolchain on Linux.
+# Installs the .NET 10 SDK, the dotnet new project template and the ncm CLI.
+# Idempotent: existing pieces are skipped or updated in place, so reruns are safe.
+# Usage: ./tools/install-linux.sh
 
 set -eu
 
@@ -12,18 +12,16 @@ TOOL_ID="NetCraft.ModBuild.Tools"
 INSTALL_ROOT="$HOME/.dotnet"
 TOOLS_DIR="$INSTALL_ROOT/tools"
 
-#TestCommand 命令在不在 PATH 上
 TestCommand() {
     command -v "$1" >/dev/null 2>&1
 }
 
-#TestSdk 本机有没有指定大版本的 SDK
+#TestSdk checks whether the machine has an SDK for the given major version
 TestSdk() {
     TestCommand dotnet || return 1
     dotnet --list-sdks 2>/dev/null | grep -q "^$1\."
 }
 
-#Download 有 curl 用 curl 没有就退到 wget
 Download() {
     if TestCommand curl; then
         curl -fsSL "$1" -o "$2"
@@ -35,7 +33,7 @@ Download() {
     fi
 }
 
-#InstallSdk 官方脚本把 SDK 装进用户目录 不动系统级那份 也就不需要 root
+#InstallSdk uses the official script to install the SDK into the user directory without touching the system copy, so no root is needed
 InstallSdk() {
     script="$(mktemp)"
     echo "downloading dotnet-install.sh"
@@ -57,13 +55,13 @@ else
     echo "installed SDK $(dotnet --version)"
 fi
 
-#工具目录也挂进当前会话 后面 ncm 才叫得出来
+#Tools directory must also be on PATH for ncm to be callable later in this session
 PATH="$TOOLS_DIR:$PATH"
 export PATH
 
 echo "==> installing project template"
 
-#站到临时目录再装 当前目录同名的目录会被优先当成模板路径 那样装进去的是本地源码不是 nuget 包
+#Install from a temp directory, otherwise a same-named folder in the current directory is treated as the template source and local sources get installed instead of the NuGet package
 (
     cd "$(mktemp -d)"
     dotnet new install "$TEMPLATE_ID" --force

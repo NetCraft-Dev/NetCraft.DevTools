@@ -1,31 +1,30 @@
 namespace NetCraft.ModBuild.Core;
 
-//CacheLayout ncm 在用户目录下占的那几处
-//挂在用户目录下 升级与重装都不换位置 装过的几个项目共用一份
+//The spots ncm occupies in the user directory; living there keeps them stable across upgrades and reinstalls and shared between installed projects
 internal static class CacheLayout
 {
-    //Home 用户目录下的产品目录 拿不到用户目录时退回程序目录 免得下载没处落
+    //Product directory under the user folder, falling back to the program root when unavailable so downloads still have a home
     public static string Home { get; } = Resolve();
 
-    //Root 下载缓存根
+    //Download cache root
     public static string Root { get; } = Path.Combine(Home, "ncm");
 
-    //Update 自更新下载下来的包与生成的脚本 与缓存分开放 免得被当成能清就清的缓存
+    //Packages and scripts from self-update, kept apart from the cache so they are not cleared like disposable cache
     public static string Update { get; } = Path.Combine(Home, "Update");
 
-    //Client 原版客户端 jar
+    //Vanilla client jar
     public static string Client => Path.Combine(Root, "Client");
 
-    //Server 服务端运行时与内核
+    //Server runtime and kernel
     public static string Server => Path.Combine(Root, "Server");
 
-    //Template 模板清单与示例文件
+    //Template catalog and example files
     public static string Template => Path.Combine(Root, "Template");
 
-    //Packages nuget 全局缓存里没命中的那些包
+    //Packages that miss the global nuget cache
     public static string Packages => Path.Combine(Root, "packages");
 
-    //Resolve 算产品目录 LocalApplicationData 个别环境是空的 空就退回程序目录
+    //Compute the product directory; LocalApplicationData is empty in some environments, so fall back to the program root then
     private static string Resolve()
     {
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);

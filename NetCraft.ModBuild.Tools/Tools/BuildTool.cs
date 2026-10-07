@@ -5,24 +5,22 @@ using NetCraft.ModBuild.Diagnostics;
 
 namespace NetCraft.ModBuild.Tools;
 
-//BuildTool 先给项目做一轮诊断 通过了再交给 dotnet build 最后把产物收进 Build/
+//BuildTool diagnoses the project first, then hands it to dotnet build and collects the output into Build/
 internal static class BuildTool
 {
-    //DefaultConfiguration 不带参数时用的构建配置
     private const string DefaultConfiguration = "Release";
 
-    //OutputDirectoryName 产物收拢目录 自动开服与自动开客户端那两条链路都从这里取
+    //OutputDirectoryName where build output is collected, both the auto server and auto client chains read it
     private static readonly string OutputDirectoryName = ProjectLayout.Output;
 
-    //OutputPath 项目根下的产物目录 自动开服那条链路按它搬产物
-    //项目自己配了输出目录就照它的来
+    //OutputPath the output directory under the project root, honoring a custom output path from the config
     internal static string OutputPath(string root)
     {
         var config = NcProject.TryFind(root, out _);
         return Path.Combine(root, config?.Build.Output ?? OutputDirectoryName);
     }
 
-    //Register 把本工具登记进注册表 名字说明与参数都写在这一行
+    //Register this tool with its name, description and parameters
     public static void Register()
         => ToolRegistry.Register("build", "Diagnose and build the mod project in the current directory", Run,
         [
@@ -32,8 +30,8 @@ internal static class BuildTool
             new("--no-manifest", "Skip the ncmod.json lookup, treat the current directory as a plain C# project (must contain a csproj)"),
         ]);
 
-    //Run 解析参数 诊断 构建 收产物
-    //命令行走这里 自动开服那条链路直接调它 参数为空即默认配置加全量检查
+    //Run parses the arguments, diagnoses, builds and collects the output
+    //The command line comes through here and the auto server chain calls it directly, empty arguments mean the default configuration and full checks
     internal static int Run(string[] args)
     {
         var configuration = DefaultConfiguration;
@@ -70,7 +68,7 @@ internal static class BuildTool
             }
         }
 
-        //两个开关凑一起就没东西可做 直接挡掉
+        //Both switches together leave nothing to do, blocked up front
         if (checkOnly && !check)
         {
             Console.WriteLine("error: --check-only and --no-check cannot be used together");
@@ -86,8 +84,8 @@ internal static class BuildTool
             return 1;
         }
 
-        //没有清单时把当前目录当一个普通 C# 项目 它得真有 csproj
-        //否则一路递归下去会把子项目与模板里的示例源码都当成这个项目的源码
+        //Without a manifest the current directory is treated as a plain C# project and must contain a csproj
+        //Otherwise the recursive walk would pull in subprojects and template sample sources
         if (project is null && !HasCsproj(Environment.CurrentDirectory))
         {
             Console.ForegroundColor = ConsoleColor.Red;
@@ -96,7 +94,7 @@ internal static class BuildTool
             return 1;
         }
 
-        //没有清单时 root 取当前目录 名字取目录名
+        //Without a manifest the root is the current directory and the name is the directory name
         var root = project is null
             ? Environment.CurrentDirectory
             : Path.GetDirectoryName(project.ManifestPath)!;
@@ -106,7 +104,7 @@ internal static class BuildTool
         Console.WriteLine($"{action} {display} ({configuration})");
         Console.WriteLine();
 
-        //配置读不动要说清楚 别让人以为是在走默认设置
+        //A broken config must be reported so nobody mistakes it for default settings
         var config = NcProject.TryFind(root, out var configError);
         if (!string.IsNullOrEmpty(configError))
         {
@@ -116,18 +114,18 @@ internal static class BuildTool
             return 1;
         }
 
-        //直编要看引用 诊断也要看 内核程序集与包先备齐
+        //The direct build and the checks both need references, so kernel assemblies and packages come first
         if (config is not null && !Prepare(root, config))
             return 1;
 
         if (check && !RunChecks(root, config))
             return 1;
 
-        //只要检查结果 到这儿就收工 不落构建产物
+        //Check-only stops here and leaves no build output
         if (checkOnly)
             return 0;
 
-        //带了 ncproj 的项目自己编 没带的仍旧交给 dotnet
+        //A project with ncproj builds through Roslyn, one without still goes to dotnet
         if (config is not null)
             return RunRoslynBuild(root, config);
 
@@ -137,8 +135,8 @@ internal static class BuildTool
         return CollectOutput(root, configuration);
     }
 
-    //Prepare 备齐直编要用的东西 内核程序集 声明的包 工程引用的产物
-    //都按需补 已经就位的直接跳过 不联网也不重下
+    //Prepare readies what the direct build needs: kernel assemblies, declared packages and project reference outputs
+    //Each one is fetched only when missing, present files are skipped to avoid the network and re-downloads
     private static bool Prepare(string root, NcProject config)
     {
         if (!KernelStore.Sync(root, config))
@@ -152,7 +150,7 @@ internal static class BuildTool
             return false;
         }
 
-        //工程引用这一趟解析一遍 后面直编与检查都从缓存里取
+        //Project references are resolved once here, the build and checks then read from the cache
         ProjectReferences.Clear();
         if (ProjectReferences.Build(root, config, out var referenceError))
             return true;
@@ -163,8 +161,8 @@ internal static class BuildTool
         return false;
     }
 
-    //RunRoslynBuild 用 Roslyn 直接编出模组程序集 不经过 dotnet 与 MSBuild 工程
-    //编不编由编译器那边按时间戳自己判 这里只负责把结果报出来
+    //RunRoslynBuild compiles the mod assembly with Roslyn, bypassing dotnet and MSBuild projects
+    //Whether to compile is decided by timestamps in the compiler, this only reports the result
     private static int RunRoslynBuild(string root, NcProject config)
     {
         var name = AssemblyNameOf(root, config);
@@ -178,7 +176,7 @@ internal static class BuildTool
             return 1;
         }
 
-        //包带的 targets 在编译之后干活 界面库那类模板编译就走这一步
+        //Package targets run after compilation, which is the step UI library templates rely on
         if (!TargetRunner.Run(root, config, target, out var targetError))
         {
             Console.ForegroundColor = ConsoleColor.Red;
@@ -190,8 +188,8 @@ internal static class BuildTool
         return Deploy(root, config, target) ? 0 : 1;
     }
 
-    //Deploy 按配置把产物复制到各个宿主目录
-    //原先那条 DeployModToHosts 目标干的就是这一件事 没配宿主就什么都不做
+    //Deploy copies the output to every configured host directory
+    //This is what the old DeployModToHosts target did, it does nothing when no host is configured
     private static bool Deploy(string root, NcProject config, string target)
     {
         var ok = true;
@@ -202,7 +200,7 @@ internal static class BuildTool
 
             try
             {
-                //内容一样就别动它 时间戳一改宿主那边又要重编一轮
+                //Leave identical files untouched, a changed timestamp would force the host to rebuild
                 var existing = new FileInfo(destination);
                 if (existing.Exists && existing.Length == new FileInfo(target).Length
                     && existing.LastWriteTimeUtc == File.GetLastWriteTimeUtc(target))
@@ -222,25 +220,25 @@ internal static class BuildTool
         return ok;
     }
 
-    //AssemblyNameOf 产物名 配置里写了就用它 没写按目录名来
-    //目录名正好是模板生成工程时用的那个名字 与原先的产物对得上
+    //AssemblyNameOf the output name from the config, or the directory name when unset
+    //The directory name matches what the template used, which keeps the old artifact name
     private static string AssemblyNameOf(string root, NcProject config)
         => string.IsNullOrWhiteSpace(config.Build.AssemblyName)
             ? new DirectoryInfo(root).Name
             : config.Build.AssemblyName;
 
-    //HasCsproj 目录下有没有工程文件 有才把这里当成一个普通 C# 项目
+    //HasCsproj whether the directory holds a project file
     private static bool HasCsproj(string directory)
         => Directory.EnumerateFiles(directory, "*.csproj").Any();
 
-    //RunChecks 构建前把 api 用法与 C# 语法语义都过一遍
-    //编译设置跟着项目配置走 免得检查过了编译又因为语言版本不同翻车
+    //RunChecks runs the api usage and C# syntax and semantic checks before building
+    //Compile settings follow the project config so a passing check does not fail later on a different language version
     private static bool RunChecks(string root, NcProject? config)
     {
         var bag = new DiagnosticBag();
         var covered = new HashSet<string>(StringComparer.Ordinal);
 
-        //模板目录的来源跟着项目配置走 镜像环境要用得上
+        //The template directory source follows the project config, needed for mirror environments
         TemplateStore.Configure(config);
         var catalog = TemplateStore.LoadCatalog();
         if (catalog is null)
@@ -268,15 +266,15 @@ internal static class BuildTool
         return false;
     }
 
-    //RunDotnetBuild 交给真正的构建 输出直接走控制台
-    //编译错误已经被前置检查挡在前面 走到这里失败多半是环境问题 原样交出输出更清楚
+    //RunDotnetBuild hands off to the real build with output straight to the console
+    //Compile errors are already caught earlier, so a failure here is likely environmental and the raw output is more useful
     private static bool RunDotnetBuild(string root, string configuration)
     {
         var startInfo = new ProcessStartInfo("dotnet")
         {
             WorkingDirectory = root,
         };
-        //ncm 的输出统一走英文 子进程别跟着系统语言变
+        //ncm output is English only, keep the child process from following the system language
         startInfo.Environment["DOTNET_CLI_UI_LANGUAGE"] = "en";
         startInfo.ArgumentList.Add("build");
         startInfo.ArgumentList.Add("--configuration");
@@ -300,7 +298,7 @@ internal static class BuildTool
         return false;
     }
 
-    //CollectOutput 把构建产物收进项目根下的 Build/
+    //CollectOutput collects the build output into Build/ under the project root
     private static int CollectOutput(string root, string configuration)
     {
         var output = FindOutputDirectory(root, configuration);
@@ -329,8 +327,8 @@ internal static class BuildTool
         return 0;
     }
 
-    //FindOutputDirectory bin/<配置> 下装着 dll 的那一层
-    //目标框架目录名随 TFM 变 不写死
+    //FindOutputDirectory the bin/<configuration> level that holds the dlls
+    //The target framework directory name varies with the TFM and is not hardcoded
     private static string? FindOutputDirectory(string root, string configuration)
     {
         var directory = Path.Combine(root, "bin", configuration);

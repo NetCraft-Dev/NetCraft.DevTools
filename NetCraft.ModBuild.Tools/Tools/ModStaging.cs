@@ -4,22 +4,22 @@ using NetCraft.ModBuild.Core;
 
 namespace NetCraft.ModBuild.Tools;
 
-//ModStaging 把本次要加载的模组备进运行目录
-//先搬 Build/kernel 里的 modapi 再把当前项目构建一遍 两者都落进 run/mods 服务端一启动就能扫到
+//ModStaging stages the mods to load into the run directory
+//It moves the modapi from Build/kernel, builds the current project and lands both in run/mods so the server scans them on startup
 internal static class ModStaging
 {
-    //ModApiFileName 内核里的 modapi 文件名
-    //模组 dll 引用它 但内核内嵌子库与模组内嵌依赖都不管这个程序集 只能在 mods 里备一份
+    //ModApiFileName the modapi file name inside the kernel
+    //Mod dlls reference it but neither the kernel's embedded libraries nor the mod's embedded dependencies carry this assembly, so a copy must be staged in mods
     private const string ModApiFileName = "NetCraft.ModApi.dll";
 
-    //ManifestResourceName 模组声明用的内嵌资源名 加载器也是按它认模组
+    //ManifestResourceName the embedded resource name a mod declares under, the loader recognizes mods by it
     private const string ManifestResourceName = "ncmod.json";
 
-    //ModsDirectoryName 模组目录名 加载器扫的就是这一个
+    //ModsDirectoryName the mods directory name, the one the loader scans
     private const string ModsDirectoryName = "mods";
 
-    //Stage 备好 mods 目录 返回是否可以继续启动
-    //任何一步没过都返回 false 没备好模组就不该把服务端拉起来
+    //Stage prepares the mods directory and reports whether startup can continue
+    //Any failing step returns false, the server should not start without staged mods
     public static bool Stage(string projectRoot, string runDirectory)
     {
         var mods = Path.Combine(runDirectory, ModsDirectoryName);
@@ -27,14 +27,14 @@ internal static class ModStaging
 
         StageModApi(projectRoot, mods);
 
-        //诊断加构建 产物收进项目根的 Build 再整份搬进 mods
+        //Diagnose and build, collect the output into the project's Build and move it all into mods
         if (BuildTool.Run([]) != 0)
             return false;
 
         return StageBuildOutput(projectRoot, mods);
     }
 
-    //StageModApi 把 Build/kernel 里的 modapi 搬进 mods
+    //StageModApi moves the modapi from Build/kernel into mods
     private static void StageModApi(string projectRoot, string mods)
     {
         var source = Path.Combine(projectRoot, ProjectLayout.Kernel, ModApiFileName);
@@ -48,9 +48,9 @@ internal static class ModStaging
         Console.WriteLine($"Staged {ModApiFileName} to {mods}");
     }
 
-    //StageBuildOutput 把模组产物搬进 mods
-    //构建输出里同时躺着内核引用程序集的副本 它们没有声明 加载器扫到也只会跳过
-    //所以只搬带 ncmod.json 的那几个 别把内核组件堆进 mods
+    //StageBuildOutput moves the mod output into mods
+    //The build output also holds copies of the kernel reference assemblies which carry no manifest and would only be skipped by the loader
+    //So only the ones with ncmod.json are moved, keeping kernel components out of mods
     private static bool StageBuildOutput(string projectRoot, string mods)
     {
         var output = BuildTool.OutputPath(projectRoot);
@@ -74,8 +74,8 @@ internal static class ModStaging
         return true;
     }
 
-    //IsModAssembly 程序集里嵌了 ncmod.json 才算模组
-    //只读元数据不加载程序集 与加载器那边的判定同一套
+    //IsModAssembly an assembly counts as a mod only when it embeds ncmod.json
+    //Only metadata is read, no assembly is loaded, matching the loader's own rule
     private static bool IsModAssembly(string path)
     {
         try

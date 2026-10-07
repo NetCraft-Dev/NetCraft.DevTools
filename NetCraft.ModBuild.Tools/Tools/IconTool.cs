@@ -9,36 +9,33 @@ using SixLabors.ImageSharp.Processing;
 
 namespace NetCraft.ModBuild.Tools;
 
-//IconTool 为当前模组项目生成图标
-//白色背景配模组名的黑色文本 文本按墨迹放大到填满留白 放不下就折行
+//IconTool generates an icon for the current mod project
+//A white background with the mod name in black, the text scaled to fill the padding and wrapped when it does not fit
 internal static class IconTool
 {
-    //Size 输出图标的边长
     private const int Size = 128;
 
-    //Padding 文本与图标边缘的最小留白
     private const int Padding = 10;
 
-    //LineSample 量一整行占位高度用的样本 带升降部的两个字母最能代表一行的实际占位
+    //LineSample two letters with both an ascender and a descender, the best sample for a line's real height
     private const string LineSample = "Ag";
 
-    //FontResource 内嵌字体资源名
     private const string FontResource = "iconttf.ttf";
 
-    //RefinePasses 字号与折行互相影响 多算几轮让两者收敛
+    //RefinePasses font size and wrapping affect each other, a few passes let both settle
     private const int RefinePasses = 3;
 
-    //Family 内嵌字体只解析一次
+    //Family parses the embedded font once
     private static readonly Lazy<FontFamily> Family = new(LoadFamily);
 
-    //Register 把本工具登记进注册表 名字说明与参数都写在这一行
+    //Register this tool with its name, description and parameters
     public static void Register()
         => ToolRegistry.Register("icon", "Generate a white background mod icon with the mod name", Run,
         [
             new("-f, --force", "Overwrite an existing icon without asking"),
         ]);
 
-    //Run 执行 当前不在模组项目下时静默退出
+    //Run executes, silently exiting when not inside a mod project
     private static int Run(string[] args)
     {
         var force = false;
@@ -61,7 +58,7 @@ internal static class IconTool
         if (project is null)
             return 0;
 
-        //带 force 就不问那一句 直接盖掉
+        //With force the overwrite question is skipped
         if (!force && File.Exists(project.IconPath) && !ConfirmOverwrite(project.IconPath))
             return 0;
 
@@ -69,20 +66,20 @@ internal static class IconTool
         return 0;
     }
 
-    //Generate 为项目画出图标并在清单缺 icon 时补一条
-    //init 建完项目也要走这一步 所以生成逻辑与命令行入口分开
+    //Generate draws the icon for a project and adds an icon entry when the manifest lacks one
+    //Init calls this after creating a project, which is why generation is separate from the command line entry
     internal static void Generate(ModProject project)
     {
         WriteIcon(project.IconPath, project.DisplayName);
         Console.WriteLine($"Icon written to {project.IconPath}");
 
-        //清单没写 icon 时补一条 生成位置本来就是按缺省约定来的
+        //Add an icon entry when the manifest lacks one, the generated path already follows the default convention
         if (project.EnsureIcon(ModProject.DefaultIconName))
             Console.WriteLine($"Added icon entry to {Path.GetFileName(project.ManifestPath)}");
     }
 
-    //ConfirmOverwrite 图标已存在时问一句
-    //回车与 y 都算跳过 只有明确说不才覆盖
+    //ConfirmOverwrite asks when the icon already exists
+    //Enter and y both mean skip, only an explicit no overwrites
     private static bool ConfirmOverwrite(string path)
     {
         Console.Write($"Icon already exists ({Path.GetFileName(path)}). Skip? (Y/n) ");
@@ -90,8 +87,8 @@ internal static class IconTool
         return answer is not null && answer.StartsWith("n", StringComparison.OrdinalIgnoreCase);
     }
 
-    //WriteIcon 画图并存盘
-    //先从整幅边长起算 首轮几乎一定超出 缩放会把字号压回留白之内
+    //WriteIcon draws the image and saves it
+    //Starting from the full side length the first pass almost always overflows, scaling brings the font back inside the padding
     private static void WriteIcon(string path, string text)
     {
         var family = Family.Value;
@@ -100,7 +97,7 @@ internal static class IconTool
         var fontSize = (float)Size;
         var lines = Wrap(family, fontSize, text, available);
 
-        //字号一变折行结果跟着变 反复算几轮让两者稳下来
+        //A new font size changes the wrapping, so a few passes let both settle
         for (var pass = 0; pass < RefinePasses; pass++)
         {
             var (width, height) = MeasureBlock(family, fontSize, lines);
@@ -118,8 +115,8 @@ internal static class IconTool
         image.SaveAsPng(path);
     }
 
-    //DrawLines 逐行绘制 每行按自身墨迹水平居中 整块垂直居中
-    //取墨迹而不是排版框是为了让字看起来真的居中 排版框上下自带的留白不均匀
+    //DrawLines draws line by line, each horizontally centered on its own ink and the block vertically centered
+    //Using ink instead of layout boxes makes the text look centered, layout boxes carry uneven padding on top and bottom
     private static void DrawLines(Image<Rgba32> image, FontFamily family, float fontSize, List<string> lines)
     {
         var font = family.CreateFont(fontSize, FontStyle.Regular);
@@ -139,8 +136,8 @@ internal static class IconTool
         });
     }
 
-    //MeasureBlock 量多行文本的墨迹范围 缩放字号以它为基准
-    //行距只发生在行与行之间 单行时不补
+    //MeasureBlock measures the ink extent of multiple lines, used as the basis for scaling the font size
+    //Line spacing only applies between lines and is not added for a single line
     private static (float Width, float Height) MeasureBlock(FontFamily family, float fontSize, List<string> lines)
     {
         var font = family.CreateFont(fontSize, FontStyle.Regular);
@@ -158,8 +155,8 @@ internal static class IconTool
         return (width, height + lineHeight * (lines.Count - 1));
     }
 
-    //Wrap 按宽度折行 优先在空格处断
-    //单个词自己就超宽时让它独占一行 后面的缩放会把它压回留白之内
+    //Wrap breaks lines to fit the width, preferring a space
+    //A single word wider than the limit gets its own line, the later scaling brings it back inside the padding
     private static List<string> Wrap(FontFamily family, float fontSize, string text, float maxWidth)
     {
         var font = family.CreateFont(fontSize, FontStyle.Regular);
@@ -186,16 +183,16 @@ internal static class IconTool
         return lines.Count > 0 ? lines : new List<string> { text };
     }
 
-    //MeasureLineHeight 量一整行的占位高度 行距由字体自身决定
+    //MeasureLineHeight measures a full line's height, spacing comes from the font itself
     private static float MeasureLineHeight(Font font)
         => TextMeasurer.MeasureSize(LineSample, new TextOptions(font)).Height;
 
-    //MeasureWidth 一段文本的排版宽度
+    //MeasureWidth the layout width of a run of text
     private static float MeasureWidth(Font font, string value)
         => TextMeasurer.MeasureSize(value, new TextOptions(font)).Width;
 
-    //LoadFamily 从内嵌资源解析字体
-    //解析要求流可寻址 资源流本身不满足 先整份读进内存
+    //LoadFamily parses the font from the embedded resource
+    //Parsing needs a seekable stream, which the resource stream is not, so it is read into memory first
     private static FontFamily LoadFamily()
     {
         using var resource = typeof(IconTool).Assembly.GetManifestResourceStream(FontResource)

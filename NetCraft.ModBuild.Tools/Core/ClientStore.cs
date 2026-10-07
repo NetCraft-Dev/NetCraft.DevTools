@@ -5,30 +5,30 @@ using Spectre.Console;
 
 namespace NetCraft.ModBuild.Core;
 
-//ClientJarFile 版本 json 里客户端那一段
+//The client section of a version json
 internal readonly record struct ClientJarFile(string Url, long Size, string Sha1);
 
-//ClientStore 原版客户端 jar 的本地缓存
-//版本号从内核的 SharedConstants 里读 下到的 jar 留在用户目录的缓存里
-//首次开服要靠它提 assets 之后的启动就不必再给了
+//Local cache of the vanilla client jar
+//The version is read from the kernel SharedConstants and the jar stays in the user cache directory
+//It is only needed to extract assets on the first launch and not afterwards
 public static class ClientStore
 {
-    //Mirror 镜像站 官方几个域名都换到它上面 国内直连官方太慢
+    //Mirror mapped from several official domains because direct access is too slow in some regions
     private const string Mirror = "https://bmclapi2.bangbang93.com";
 
-    //MirrorManifestUrl 版本清单的镜像地址
+    //Mirror address of the version manifest
     private const string MirrorManifestUrl = Mirror + "/mc/game/version_manifest.json";
 
-    //OfficialManifestUrl 版本清单的官方地址 镜像不通时回退
+    //Official address of the version manifest, used when the mirror fails
     private const string OfficialManifestUrl = "https://launchermeta.mojang.com/mc/game/version_manifest.json";
 
-    //Attempts 单个地址最多试几次
+    //Retry limit per address
     private const int Attempts = 3;
 
-    //MinJarSize 小于这个字节数的一律当没下完整
+    //Anything smaller than this is treated as a truncated download
     private const long MinJarSize = 1024L;
 
-    //Mirrors 官方域名到镜像的对应 版本 json 与 jar 的地址都从这里面出
+    //Official domain to mirror mapping used for both version json and jar addresses
     private static readonly (string From, string To)[] Mirrors =
     [
         ("https://piston-meta.mojang.com", Mirror),
@@ -37,16 +37,16 @@ public static class ClientStore
         ("https://launchermeta.mojang.com", Mirror),
     ];
 
-    //Root 缓存目录 用户目录下的 Client 换 ncm 版本不受影响
+    //Cache directory under the user profile, unaffected by ncm version changes
     public static string Root => CacheLayout.Client;
 
-    //ConfiguredVersion 配置里指定的 jar 版本 空表示照内核版本走
+    //Jar version from the config, empty follows the kernel version
     private static string ConfiguredVersion { get; set; } = string.Empty;
 
-    //ConfiguredJar 配置里给的直链 给了就不再查版本清单
+    //Direct URL from the config, which skips the version manifest
     private static string ConfiguredJar { get; set; } = string.Empty;
 
-    //Configure 按项目配置调整版本与直链 没配的项一律保持默认
+    //Adjust the version and direct URL from the project config, keeping defaults for anything unset
     public static void Configure(NcProject? project)
     {
         if (project is null)
@@ -56,8 +56,8 @@ public static class ClientStore
         ConfiguredJar = project.Client.Jar;
     }
 
-    //Ensure 保证这台机器要的那份客户端 jar 在缓存里 返回它的路径 办不到返回 null
-    //已有且看着完整就不再联网 每次开服都重下一遍太亏
+    //Make sure the client jar this machine needs is cached and return its path, or null when impossible
+    //An existing jar that looks complete avoids a fresh download on every launch
     public static string? Ensure()
     {
         var version = Version();
@@ -79,12 +79,12 @@ public static class ClientStore
         return Fetch(version, target) ? target : null;
     }
 
-    //Version 用哪个版本 配置里指定了就以它为准 没指定才读内核里那个
+    //Which version to use, preferring the configured one and reading the kernel only when unset
     private static string? Version()
         => string.IsNullOrWhiteSpace(ConfiguredVersion) ? KernelVersion() : ConfiguredVersion;
 
-    //KernelVersion 内核里的版本字符串 横杠前面那段就是 Minecraft 的版本号
-    //读的是编译期常量 只借用元数据 用完把加载上下文卸掉
+    //Version string from the kernel, whose part before the dash is the Minecraft version
+    //This reads a compile-time constant via metadata only and unloads the load context afterwards
     private static string? KernelVersion()
     {
         var path = Path.Combine(ServerStore.Root, "NetCraft.Config.dll");
@@ -120,8 +120,8 @@ public static class ClientStore
         }
     }
 
-    //Fetch 把 jar 拉下来 配置给了直链就直接下 否则先查版本清单再下
-    //落盘前把能校验的都过一遍 大小与哈希只有清单那条路才有
+    //Download the jar from the configured URL when present or via the version manifest otherwise
+    //Everything checkable is verified before the file is kept, though size and hash only exist on the manifest path
     private static bool Fetch(string version, string target)
     {
         ClientJarFile? entry = null;
@@ -170,7 +170,7 @@ public static class ClientStore
             return false;
         }
 
-        //直链那边没有清单可依 至少把明显没下全的挡下来
+        //The direct URL path has no manifest so at least reject an obviously truncated download
         if (info.Length < MinJarSize)
         {
             Console.WriteLine($"error: the downloaded jar is only {info.Length} byte(s), treating it as incomplete");
@@ -183,8 +183,8 @@ public static class ClientStore
         return true;
     }
 
-    //DownloadWithProgress 边下边画一条字节进度
-    //服务端不给总长时退成滚动条 只在描述里报已下字节
+    //Download while drawing a byte progress bar
+    //A server that omits the total length falls back to a spinner that reports the received bytes
     private static bool DownloadWithProgress(string url, string target, string label, out string error)
     {
         var ok = false;
@@ -216,7 +216,7 @@ public static class ClientStore
         return ok;
     }
 
-    //TryDownload 流式下载 先走镜像再走原地址 每个地址各有几次重试
+    //Stream a download through the mirror first and the original address second, retrying each a few times
     private static bool TryDownload(string url, string target, Action<long, long?> report, out string error)
     {
         error = string.Empty;
@@ -233,7 +233,7 @@ public static class ClientStore
         return false;
     }
 
-    //Sha1 算文件的 sha1 十六进制小写 读不出返回空串
+    //Compute the lowercase hex sha1 of a file, returning an empty string when it cannot be read
     private static string Sha1(string path)
     {
         try
@@ -248,13 +248,13 @@ public static class ClientStore
         }
     }
 
-    //Human 字节数改成人读的单位 总长拿不到时进度条上用它报数
+    //Format a byte count for humans, used on the progress bar when the total length is unknown
     private static string Human(long bytes)
         => bytes >= 1024 * 1024
             ? $"{bytes / 1024d / 1024d:0.0} MB"
             : $"{bytes / 1024d:0.0} KB";
 
-    //Discard 删掉没通过校验的临时文件
+    //Delete a temporary file that failed validation
     private static void Discard(string path)
     {
         try
@@ -268,7 +268,7 @@ public static class ClientStore
         }
     }
 
-    //FindClient 版本清单里按版本名找到 json 再从 json 里取客户端那一段
+    //Look up a version in the manifest and read its client section from the version json
     private static ClientJarFile? FindClient(string version)
     {
         var manifest = TryGet(MirrorManifestUrl, out var error) ?? TryGet(OfficialManifestUrl, out error);
@@ -325,7 +325,7 @@ public static class ClientStore
         return new ClientJarFile(address, size, sha1);
     }
 
-    //TryGet 下载一份小内容 先走镜像再走原地址 每个地址各有几次重试
+    //Download a small payload through the mirror first and the original address second, retrying each a few times
     private static byte[]? TryGet(string url, out string error)
     {
         error = string.Empty;
@@ -343,7 +343,7 @@ public static class ClientStore
         return null;
     }
 
-    //MirrorUrl 官方地址换到镜像上 本来就是镜像或别的域名就原样返回
+    //Rewrite an official address to the mirror, leaving addresses that are already mirrored or unrelated unchanged
     private static string MirrorUrl(string url)
     {
         foreach (var (from, to) in Mirrors)

@@ -3,19 +3,19 @@ using NetCraft.ModBuild.Core;
 
 namespace NetCraft.ModBuild.Compile;
 
-//PackageTargets 把包带来的 props 与 targets 收进项目
-//收进来项目就自持了 清掉包缓存或者换台机器照样能构建
-//targets 里用 MSBuildThisFileDirectory 指到的文件也一并带上 不然任务程序集找不到
+//Collects the props and targets a package ships into the project
+//Doing so makes the project self contained, so clearing the package cache or moving machines still builds
+//Files reached through MSBuildThisFileDirectory come along too, otherwise task assemblies go missing
 internal static class PackageTargets
 {
-    //DirectoryOf 收集落点 项目 Build 下的 targets 目录
+    //Target directory for collected files, the targets folder under the project's Build
     private static string DirectoryOf(string root) => Path.Combine(root, ProjectLayout.Targets);
 
-    //Folders nuget 约定直接引用看 build 传递依赖看 buildTransitive 两边都收会重复导入同一批目标
+    //By nuget convention direct references read build and transitive ones read buildTransitive, and taking both would import the same targets twice
     private static readonly string[] DirectFolders = ["build", "buildMultiTargeting"];
     private static readonly string[] TransitiveFolders = ["buildTransitive"];
 
-    //Collect 收一个包 返回收进来几个文件
+    //Collects one package and returns how many files came in
     public static int Collect(string root, string source, string id, bool direct)
     {
         var destination = Path.Combine(DirectoryOf(root), id);
@@ -42,8 +42,7 @@ internal static class PackageTargets
         return copied.Count;
     }
 
-    //Imports 项目里收好的那份清单 props 一律排在 targets 前面
-    //顺序按落点目录的第一个子目录名定 也就是包名 同一个包内按路径比
+    //Imports collected into the project with props always ahead of targets, ordered by package name and then by path within a package
     public static IEnumerable<string> Imports(string root)
     {
         var directory = DirectoryOf(root);
@@ -62,11 +61,11 @@ internal static class PackageTargets
         }
     }
 
-    //LooksLikeIntermediate 中间目录不是包 别把里面的东西当成导入项
+    //Intermediate folders are not packages, so their contents must not be taken as imports
     private static bool LooksLikeIntermediate(string path)
         => Path.GetFileName(path).Equals("obj", StringComparison.OrdinalIgnoreCase);
 
-    //Copy 按包内相对结构复制过去 结构不能变 targets 之间都是靠相对路径互相找的
+    //Copies preserving the in package layout because targets locate each other through relative paths
     private static void Copy(string path, string source, string destination, HashSet<string> copied)
     {
         var full = Path.GetFullPath(path);
@@ -88,8 +87,7 @@ internal static class PackageTargets
         }
     }
 
-    //References 从文本里挑出 MSBuildThisFileDirectory 指到的路径
-    //带属性的拼不出来 直接跳过 剩下的包自己会抱怨
+    //Pulls the paths referenced through MSBuildThisFileDirectory out of the text, skipping ones containing properties since the package itself will complain
     private static IEnumerable<string> References(string path)
     {
         string text;
@@ -105,7 +103,7 @@ internal static class PackageTargets
         var directory = Path.GetDirectoryName(path)!;
         foreach (Match match in Regex.Matches(text, @"\$\(MSBuildThisFileDirectory\)([^""'<>;\s]*)", RegexOptions.IgnoreCase))
         {
-            //tail 常以分隔符开头 直接 combine 会把前半段丢掉
+            //The tail often starts with a separator, which would drop the leading part if combined directly
             var tail = match.Groups[1].Value.TrimStart('\\', '/');
             if (tail.Length == 0 || tail.Contains("$(") || tail.IndexOfAny(['*', '?']) >= 0)
                 continue;

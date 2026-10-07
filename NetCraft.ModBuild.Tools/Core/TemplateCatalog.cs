@@ -5,54 +5,48 @@ using YamlDotNet.Serialization.NamingConventions;
 
 namespace NetCraft.ModBuild.Core;
 
-//TemplateEntry 清单里的一条 api 条目
+//TemplateEntry, one api entry in the catalog
 public sealed class TemplateEntry
 {
-    //Id api 的完整标识 例如 NetCraft.ModApi.Wrapper.NcPlayer
+    //Full api identifier such as NetCraft.ModApi.Wrapper.NcPlayer
     public string Id { get; set; } = string.Empty;
 
-    //Title 一句话名字
     public string Title { get; set; } = string.Empty;
 
-    //Summary 更细的说明
     public string Summary { get; set; } = string.Empty;
 
-    //Template 示例文件相对 base 的路径
+    //Example file path relative to base
     public string Template { get; set; } = string.Empty;
 
-    //Members 该 api 对外暴露的成员名 用来判断项目里的用法对不对
-    //留空表示不校验成员 只要类型名对上就算用对
+    //Member names the api exposes, used to judge usage in the project; empty skips member checks and any matching type name counts as correct
     public List<string> Members { get; set; } = new();
 }
 
-//GradeRule 扫描项目源码时的识别规则
-//符号写成 类型.成员 类型命中这里的规则才当模组 api 看
+//Recognition rules for scanning project sources; a symbol written as Type.Member counts as a mod api only when the type matches these rules
 public sealed class GradeRule
 {
-    //Prefixes 类型名前缀 例如 Nc
+    //Type name prefixes such as Nc
     public List<string> Prefixes { get; set; } = new() { "Nc" };
 
-    //Types 不带前缀也要认的类型名 例如三个事件门面
+    //Type names recognized without a prefix, such as the three event facades
     public List<string> Types { get; set; } = new() { "ServerEvents", "ClientEvents", "NetworkEvents" };
 }
 
-//TemplateCatalog NetCraftTemplate.yaml 的模型
-//字段与 yaml 一一对应 多出来的键直接忽略 方便以后再往清单上加东西
+//Model of NetCraftTemplate.yaml; fields map one-to-one with the yaml and extra keys are ignored so the catalog can grow later
 public sealed class TemplateCatalog
 {
-    //Base 示例文件的拉取基准
+    //Base location the examples are fetched from
     public string Base { get; set; } = string.Empty;
 
-    //Document 图形面板渲染的文档 相对 base 的路径
+    //Document rendered by the graphical panel, relative to base
     public string Document { get; set; } = string.Empty;
 
-    //Grade 识别项目里 api 用法的形状规则
+    //Shape rules for recognizing api usage in the project
     public GradeRule Grade { get; set; } = new();
 
-    //Apis 全部可用条目
     public List<TemplateEntry> Apis { get; set; } = new();
 
-    //Read 读本地清单 读不出或解析不了返回 null
+    //Read the local catalog, returning null when it cannot be read or parsed
     public static TemplateCatalog? Read(string path)
     {
         string text;
@@ -87,18 +81,17 @@ public sealed class TemplateCatalog
         }
     }
 
-    //ResolveUrl 把条目里的相对路径拼成完整地址 两头的斜杠各归各的
+    //Join a relative path onto the base URL, trimming the slash on each side
     public string ResolveUrl(string relative)
         => $"{Base.TrimEnd('/')}/{relative.TrimStart('/')}";
 
-    //Matches 条目 id 是否命中筛选模式
-    //? 与 * 都当任意字符序列 其余字符按字面比 大小写不敏感 空模式一律命中
+    //Whether an entry id matches the filter pattern; ? and * both match any run of characters while the rest is literal, matching is case-insensitive and an empty pattern matches everything
     public static bool Matches(string id, string? pattern)
     {
         if (string.IsNullOrWhiteSpace(pattern))
             return true;
 
-        //先转义再放开通配 免得用户输入里的正则元字符意外生效
+        //Escape first and only then open the wildcards so regex metacharacters in user input cannot take effect
         var body = Regex.Escape(pattern).Replace(@"\?", ".*").Replace(@"\*", ".*");
         return Regex.IsMatch(id, $"^.*{body}.*$", RegexOptions.IgnoreCase);
     }

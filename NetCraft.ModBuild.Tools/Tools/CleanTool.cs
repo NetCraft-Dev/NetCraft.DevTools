@@ -2,22 +2,22 @@ using NetCraft.ModBuild.Core;
 
 namespace NetCraft.ModBuild.Tools;
 
-//CleanTool 清掉构建缓存
-//项目里默认只清 Build 不在项目里就只有共享下载缓存可清 删之前问一句
+//CleanTool removes the build cache
+//Inside a project it only clears Build, elsewhere only the shared download cache exists and removal asks first
 internal static class CleanTool
 {
-    //AllOption 项目里连下载缓存一起清 不在项目里跳过那一问
+    //AllOption also clears the download cache inside a project and skips the question outside one
     private const string AllOption = "--all";
 
-    //Register 把本工具登记进注册表 名字说明与参数都写在这一行
+    //Register this tool with its name, description and parameters
     public static void Register()
         => ToolRegistry.Register("clean", "Remove the project build cache, or the shared download cache when there is no project here", Run,
         [
             new(AllOption, "Remove everything ncm downloaded without asking: the client jar, the server runtime, the template files, the packages and the update package"),
         ]);
 
-    //Run 项目里清项目那份 不在项目里清共享那份并先问一句
-    //清掉的东西下次构建会重新备 所以项目里默认不动下载缓存 联网重下不值当
+    //Run clears the project copy inside a project, or the shared copy outside one after asking
+    //Everything removed is re-fetched on the next build, so the download cache is left alone inside a project to avoid a pointless re-download
     private static int Run(string[] args)
     {
         foreach (var arg in args)
@@ -47,7 +47,7 @@ internal static class CleanTool
             if (all)
                 freed += RemoveDownloads(project);
         }
-        //不在项目里 能清的只有共享缓存 问一句再动手
+        //Outside a project only the shared cache can be cleared, ask before touching it
         else if (all || AskDownloads())
         {
             freed += RemoveDownloads(project);
@@ -61,11 +61,11 @@ internal static class CleanTool
         return 0;
     }
 
-    //AskDownloads 问一句要不要清共享缓存 提示里带上位置与占用
-    //输入被重定向时没人应答 那就只把该怎么做说清楚 不擅自删
+    //AskDownloads asks whether to clear the shared cache, showing its location and size
+    //With redirected input nobody can answer, so it only explains what to do instead of deleting
     private static bool AskDownloads()
     {
-        //更新缓存与下载缓存平级 两边加起来才是 ncm 在用户目录里占的全部
+        //The update cache sits beside the download cache, together they make up everything ncm keeps in the user directory
         var size = (Size(CacheLayout.Root) + Size(CacheLayout.Update)) / 1024.0 / 1024.0;
         if (!Directory.Exists(CacheLayout.Root) && !Directory.Exists(CacheLayout.Update))
         {
@@ -83,12 +83,12 @@ internal static class CleanTool
         return Prompt.Confirm("Remove it?", defaultYes: true, warn: true);
     }
 
-    //RemoveDownloads 清共享下载缓存 项目把服务端缓存指到别处时那一份也一起
+    //RemoveDownloads clears the shared download cache and, when the project points the server cache elsewhere, that copy too
     private static long RemoveDownloads(NcProject? project)
     {
         var freed = Remove(CacheLayout.Root, "download cache");
 
-        //更新缓存里那份包与脚本留着也没用 下回更新会重下
+        //The package and scripts kept in the update cache are useless, the next update re-downloads them
         freed += Remove(CacheLayout.Update, "update cache");
 
         ServerStore.Configure(project);
@@ -98,14 +98,14 @@ internal static class CleanTool
         return freed;
     }
 
-    //SamePath 两个路径是不是同一处 大小写与末尾斜杠都不计较
+    //SamePath whether two paths point to the same place, ignoring case and trailing separators
     private static bool SamePath(string left, string right)
         => string.Equals(
             Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
             Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
             StringComparison.OrdinalIgnoreCase);
 
-    //Remove 删一个目录 返回释放的字节数
+    //Remove deletes one directory and returns the freed bytes
     private static long Remove(string directory, string what)
     {
         if (!Directory.Exists(directory))
@@ -127,7 +127,7 @@ internal static class CleanTool
         }
     }
 
-    //Size 目录占用
+    //Size the directory footprint in bytes
     private static long Size(string directory)
     {
         try

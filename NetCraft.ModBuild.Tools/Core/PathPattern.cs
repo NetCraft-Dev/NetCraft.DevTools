@@ -4,13 +4,10 @@ using NetCraft.ModBuild.Diagnostics;
 
 namespace NetCraft.ModBuild.Core;
 
-//PathPattern 相对项目根的模式匹配
-//* 与 ? 只在同一段里生效 ** 能跨目录
-//通配符之前那一段当基准 免得把整棵树扫一遍
+//Pattern matching relative to the project root; * and ? stay within one segment while ** crosses directories, and the segment before the wildcard limits the scan
 internal static class PathPattern
 {
-    //Match 展开一个模式 命中的是一批文件路径
-    //构建产物目录下的文件一律不算 那是上一次编出来的
+    //Expand a pattern into matching file paths; build output is excluded since it belongs to a previous compile
     public static IEnumerable<string> Match(string root, string pattern)
     {
         var normalized = pattern.Replace('\\', '/').TrimStart('/').TrimEnd('/');
@@ -20,7 +17,7 @@ internal static class PathPattern
         var wildcard = normalized.IndexOfAny(['*', '?']);
         if (wildcard < 0)
         {
-            //没有通配符时它可能直接指着某个文件
+            //Without a wildcard the pattern may point straight at a file
             var direct = Path.GetFullPath(Path.Combine(root, normalized.Replace('/', Path.DirectorySeparatorChar)));
             if (File.Exists(direct))
             {
@@ -44,13 +41,13 @@ internal static class PathPattern
             if (SourceFiles.IsGenerated(root, path))
                 continue;
 
-            //没有通配符又指着目录时整棵子树都算
+            //A wildcard-free pattern pointing at a directory matches its whole subtree
             if (expression is null || expression.IsMatch(Relative(root, path)))
                 yield return path;
         }
     }
 
-    //Glob 通配模式换成正则 ** 跨目录 * 与 ? 只在同一段里生效
+    //Translate a glob into a regex where ** crosses directories and * and ? stay in one segment
     private static string Glob(string pattern)
     {
         var builder = new StringBuilder("^");
@@ -73,7 +70,7 @@ internal static class PathPattern
         return builder.Append('$').ToString();
     }
 
-    //Relative 相对项目根的路径 统一用斜杠
+    //Path relative to the project root with forward slashes
     private static string Relative(string root, string path)
         => Path.GetRelativePath(root, path).Replace('\\', '/');
 }

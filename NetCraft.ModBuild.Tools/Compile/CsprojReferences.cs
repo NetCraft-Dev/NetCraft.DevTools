@@ -4,22 +4,20 @@ using Microsoft.Build.Framework;
 using Microsoft.Build.Logging;
 using NetCraft.ModBuild.Tools;
 
-//System.Diagnostics 也带一个 Trace 这里点明用项目自己的那个
+//System.Diagnostics also defines a Trace, so name the project's own
 using Trace = NetCraft.ModBuild.Core.Trace;
 
 namespace NetCraft.ModBuild.Compile;
 
-//CsprojReferences 普通 csproj 项目的编译引用
-//不自己解析那份 xml 让 msbuild 引擎跑一遍 ResolveReferences 取它算出来的那份
-//程序集名解析 包还原 项目引用这三样都由 msbuild 与 nuget 负责 自己写一遍只会漏
-//ncproj 项目不走这里 它的引用从项目配置与 Build 目录来
+//Compile references for plain csproj projects, obtained by running msbuild's ResolveReferences instead of parsing the xml ourselves
+//Assembly name resolution, package restore and project references are msbuild and nuget's job and reimplementing them only misses cases
+//ncproj projects do not come through here, their references come from the config and Build directory
 internal static class CsprojReferences
 {
-    //Cache 一个工程求一次就够 检查与构建两条链都会问同一份
+    //One resolve per project is enough since check and build both ask for it
     private static readonly Dictionary<string, IReadOnlyList<string>> Cache = new(StringComparer.OrdinalIgnoreCase);
 
-    //Assemblies 目录里那个 csproj 编译要用到的引用文件
-    //没有 csproj 或引擎不可用时返回空表 调用方那边自然退回只有框架引用
+    //Empty when there is no csproj or the engine is unavailable, which leaves the caller with framework references only
     public static IReadOnlyList<string> Assemblies(string root)
     {
         var project = Directory.EnumerateFiles(root, "*.csproj").FirstOrDefault();
@@ -34,7 +32,7 @@ internal static class CsprojReferences
         return resolved;
     }
 
-    //Resolve 求值一次 ResolveReferences 把 ReferencePath 那批取出来
+    //Runs ResolveReferences once and collects the ReferencePath items
     private static IReadOnlyList<string> Resolve(string project)
     {
         if (!MsBuildLibrary.Attach(out var engineError))
@@ -44,7 +42,7 @@ internal static class CsprojReferences
         }
 
         var directory = Path.GetDirectoryName(project)!;
-        //没有资产文件就先还原 少了它 ResolvePackageAssets 那一步直接失败
+        //Restore first when the assets file is missing, otherwise ResolvePackageAssets fails outright
         if (!File.Exists(Path.Combine(directory, "obj", "project.assets.json")) && !Restore(directory))
             return [];
 
@@ -53,7 +51,7 @@ internal static class CsprojReferences
             TargetRunner.Sdks();
             var collection = new ProjectCollection();
             var loaded = new Project(project, globalProperties: null, toolsVersion: null, projectCollection: collection);
-            //ReferencePath 是目标跑起来才填的 求值那份取不到 得拿实例
+            //ReferencePath is only populated by a target run, so the instance is needed instead of the evaluated project
             var instance = loaded.CreateProjectInstance();
             if (!instance.Build("ResolveReferences", [new ConsoleLogger(LoggerVerbosity.Quiet)]))
             {
@@ -78,7 +76,7 @@ internal static class CsprojReferences
         }
     }
 
-    //Restore 交给 dotnet 还原一次 被引用工程的产物也在这条链上一起准备好
+    //Restores through dotnet, which also prepares the output of referenced projects
     private static bool Restore(string directory)
     {
         Console.WriteLine($"Restoring {new DirectoryInfo(directory).Name} before resolving its references");
@@ -86,7 +84,7 @@ internal static class CsprojReferences
         {
             WorkingDirectory = directory,
         };
-        //ncm 的输出统一走英文 子进程别跟着系统语言变
+        //Keep child process output in English regardless of the system language
         startInfo.Environment["DOTNET_CLI_UI_LANGUAGE"] = "en";
         startInfo.ArgumentList.Add("restore");
         startInfo.ArgumentList.Add("--nologo");

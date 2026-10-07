@@ -8,16 +8,15 @@ using NetCraft.ModBuild.Diagnostics;
 
 namespace NetCraft.ModBuild.Compile;
 
-//CompileOptions 一次编译用的设置
 public sealed record CompileOptions(string AssemblyName, string LangVersion, bool Nullable, bool ImplicitUsings,
     string DefineConstants, OutputKind OutputKind)
 {
-    //Default 只看不编时用的那套 与模板工程的默认值一致
+    //Matches the template project's defaults and is used when only checking
     public static CompileOptions Default { get; } =
         new("ncm-project", NcCheck.DefaultLangVersion, true, true, string.Empty,
             OutputKind.DynamicallyLinkedLibrary);
 
-    //From 按项目配置来 fallbackName 是配置没写程序集名时的兜底
+    //Builds options from the project config, with fallbackName covering a missing assembly name
     public static CompileOptions From(NcProject project, string? fallbackName = null)
         => new(
             string.IsNullOrWhiteSpace(project.Build.AssemblyName)
@@ -32,10 +31,9 @@ public sealed record CompileOptions(string AssemblyName, string LangVersion, boo
                 : OutputKind.DynamicallyLinkedLibrary);
 }
 
-//ProjectCompilation 装配好的一次编译
 public sealed class ProjectCompilation
 {
-    //GeneratedPath 补隐式 using 那棵虚拟树的路径 它自己的诊断不往外报
+    //Path of the virtual tree carrying implicit usings, whose diagnostics are never reported
     public const string GeneratedPath = "ncm.g.cs";
 
     internal ProjectCompilation(Compilation compilation, CSharpParseOptions parseOptions,
@@ -47,25 +45,23 @@ public sealed class ProjectCompilation
         References = references;
     }
 
-    //Compilation 跑过源生成器之后的结果
+    //Result after the source generators have run
     public Compilation Compilation { get; }
 
-    //ParseOptions 解析源码用的选项 生成器那边也要同一份
+    //Shared with the generators so both parse the same way
     public CSharpParseOptions ParseOptions { get; }
 
-    //Sources 参与编译的项目源码 不含那棵虚拟树
+    //Project sources, excluding the virtual tree
     public IReadOnlyList<string> Sources { get; }
 
-    //References 这次编译用到的引用文件 增量判定也要盯它们
+    //Reference files used by this compilation, also watched by the incremental check
     public IReadOnlyList<string> References { get; }
 }
 
-//CompilationFactory 把项目源码 引用 隐式 using 与源生成器装成一次编译
-//检查与真正的构建共用这一套 省得两边各解析一遍源码
+//Assembles sources, references, implicit usings and source generators into one compilation shared by check and build
 public static class CompilationFactory
 {
-    //ImplicitUsings 工程开了隐式 using 时补一份等价的全局 using
-    //少了它整套源码会集体报找不到 System 里的类型
+    //Global usings injected when implicit usings are enabled, without which every source file fails to find System types
     private const string ImplicitUsings = """
         global using global::System;
         global using global::System.Collections.Generic;
@@ -76,7 +72,7 @@ public static class CompilationFactory
         global using global::System.Threading.Tasks;
         """;
 
-    //Create 装配一次编译 装不出来返回 null 并把原因写进 error
+    //Returns null on failure and writes the reason into error
     public static ProjectCompilation? Create(string root, CompileOptions options, out string error)
     {
         error = string.Empty;
@@ -109,7 +105,7 @@ public static class CompilationFactory
                 continue;
             }
 
-            //编码要报给 Roslyn 少了这一条调试信息就没法生成
+            //The encoding has to reach Roslyn or debug info cannot be generated
             trees.Add(CSharpSyntaxTree.ParseText(text, parseOptions, path: file, encoding: Encoding.UTF8));
         }
 
@@ -126,13 +122,12 @@ public static class CompilationFactory
                 optimizationLevel: OptimizationLevel.Release,
                 deterministic: true));
 
-        //界面那类项目有一批成员是生成器现产的 不先跑一遍整片源码都报找不到名字
+        //UI projects have members produced by generators, so they must run first or the sources fail to resolve those names
         var generated = RunGenerators(root, compilation, parseOptions);
         return new ProjectCompilation(generated, parseOptions, files, referencePaths);
     }
 
-    //Inputs 会影响产物的那份文件清单 增量判定按它比时间戳
-    //自己能想到的输入都算上 少列一个就可能编出过期的产物
+    //Every file that can affect the output; missing one risks building a stale product
     public static IReadOnlyList<string> Inputs(string root)
     {
         var paths = new List<string>(SourceFiles.Enumerate(root));
@@ -140,7 +135,6 @@ public static class CompilationFactory
         return paths;
     }
 
-    //ParseOptionsOf 语言版本与编译期符号
     private static CSharpParseOptions ParseOptionsOf(CompileOptions options)
     {
         var parse = new CSharpParseOptions(LanguageVersionOf(options.LangVersion));
@@ -148,7 +142,7 @@ public static class CompilationFactory
         return symbols.Count == 0 ? parse : parse.WithPreprocessorSymbols(symbols);
     }
 
-    //LanguageVersionOf 配置里写的那种语言版本换成 Roslyn 的枚举
+    //Falls back to the latest version when the value is not recognized
     private static LanguageVersion LanguageVersionOf(string value)
     {
         if (string.Equals(value, "latest", StringComparison.OrdinalIgnoreCase))
@@ -157,14 +151,14 @@ public static class CompilationFactory
         if (string.Equals(value, "preview", StringComparison.OrdinalIgnoreCase))
             return LanguageVersion.Preview;
 
-        //12.0 这种带小数点的写法对应 CSharp12
+        //Dotted versions like 12.0 map to CSharp12
         var major = value.Split('.')[0];
         return Enum.TryParse<LanguageVersion>("CSharp" + major, ignoreCase: true, out var version)
             ? version
             : LanguageVersion.Latest;
     }
 
-    //Symbols 分号或逗号分隔的编译期符号 形如 DEBUG 或 TRACE=1 都取等号前面那段
+    //Splits define constants on ; or , keeping only the part before = as in TRACE=1
     private static List<string> Symbols(string value)
         => string.IsNullOrWhiteSpace(value)
             ? []
@@ -173,11 +167,10 @@ public static class CompilationFactory
                 .Where(symbol => symbol.Length > 0)
                 .ToList();
 
-    //References 这次编译用到的引用文件 targets 那边也要这份清单
+    //Reference files for this compilation, also needed by the targets side
     internal static IReadOnlyList<string> References(string root) => ReferencePaths(root);
 
-    //ReferencePaths 编译要用到的全部引用文件
-    //引用程序集优先 那套只带签名 拿运行时实现程序集编出来的产物会绑上具体实现
+    //Reference assemblies come first because building against implementation assemblies would bind the output to concrete implementations
     private static List<string> ReferencePaths(string root)
     {
         var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -194,8 +187,7 @@ public static class CompilationFactory
             }
         }
 
-        //项目 Build/kernel 下的 NC 程序集 模板同步来的那批
-        //只盯这一层 还原出来的包另有清单指路 别让它把别人的东西也扫进来
+        //NC assemblies under the project's Build/kernel, synced from the template; only this level is scanned since restored packages are covered elsewhere
         var kernel = Path.Combine(root, ProjectLayout.Kernel);
         if (Directory.Exists(kernel))
         {
@@ -203,12 +195,11 @@ public static class CompilationFactory
                 paths.Add(path);
         }
 
-        //还原出来的包程序集 直接扫落点 一个包一层
+        //Assemblies of restored packages scanned straight from their target, one directory per package
         foreach (var path in PackageResolver.Assemblies(root))
             paths.Add(path);
 
-        //项目配置里声明的两类引用 直接给的 dll 与别的工程的产物
-        //没配的项目走到这里就是空 与原先一样
+        //The two reference kinds declared in the config: raw dlls and other projects' output
         var config = NcProject.TryFind(root, out _);
         if (config is not null)
         {
@@ -224,8 +215,7 @@ public static class CompilationFactory
             foreach (var product in ProjectReferences.Products(root, config))
                 paths.Add(product);
         }
-        //没有 ncproj 就按普通 csproj 走 它那三类引用交给 msbuild 求值
-        //--no-manifest 检查一个 csproj 项目走的就是这条路
+        //Without an ncproj the project is treated as a plain csproj whose references msbuild resolves, which is also the path --no-manifest check takes
         else
         {
             foreach (var path in CsprojReferences.Assemblies(root))
@@ -235,7 +225,7 @@ public static class CompilationFactory
         return paths.ToList();
     }
 
-    //LoadReferences 把引用文件读成 Roslyn 的元数据引用 读不动的跳过
+    //Reads reference files into Roslyn metadata references, skipping any that fail to load
     private static List<MetadataReference> LoadReferences(IEnumerable<string> paths)
     {
         var references = new List<MetadataReference>();
@@ -255,8 +245,7 @@ public static class CompilationFactory
         return references;
     }
 
-    //RunGenerators 把各包带的生成器跑一遍 生成出来的源码并进编译
-    //界面库的 InitializeComponent 与 x:Name 字段都是这一步才有的 磁盘上根本找不到
+    //Runs the packages' generators and merges their output; the UI InitializeComponent and x:Name members exist only after this step
     private static Compilation RunGenerators(string root, Compilation compilation, CSharpParseOptions parseOptions)
     {
         var analyzers = PackageResolver.Analyzers(root).ToList();
@@ -273,7 +262,7 @@ public static class CompilationFactory
             return compilation;
         }
 
-        //模板文件是走附加文件喂给生成器的 axaml 全靠这一路读到
+        //Template files reach the generators as additional files, the only path by which axaml gets read
         var additional = SourceFiles.Enumerate(root, "*.axaml")
             .Select(path => (AdditionalText)new AdditionalFile(path))
             .ToList();
@@ -289,8 +278,7 @@ public static class CompilationFactory
         return output;
     }
 
-    //LoadGenerators 从一份分析器程序集里挑出生成器
-    //只认带无参构造的 Roslyn 就是这么实例化它们的
+    //Picks generators out of an analyzer assembly; only parameterless constructors qualify since that is how Roslyn instantiates them
     private static void LoadGenerators(string path, List<ISourceGenerator> generators)
     {
         System.Reflection.Assembly assembly;
@@ -311,7 +299,7 @@ public static class CompilationFactory
         }
         catch (System.Reflection.ReflectionTypeLoadException e)
         {
-            //依赖缺一个不该让整份程序集作废 能拿到的类型接着看
+            //A missing dependency should not void the whole assembly, so keep whatever types did load
             types = e.Types.Where(type => type is not null).Cast<Type>().ToArray();
         }
 
@@ -338,7 +326,6 @@ public static class CompilationFactory
         }
     }
 
-    //AdditionalFile 交给生成器读的附加文件
     private sealed class AdditionalFile(string path) : AdditionalText
     {
         public override string Path { get; } = path;
@@ -357,9 +344,7 @@ public static class CompilationFactory
         }
     }
 
-    //OptionsProvider 生成器读的那份配置
-    //全局属性一律不给 让各选项走自己的默认值
-    //附加文件要报出它属于 AvaloniaXaml 这一项 界面库的生成器靠这个筛输入 不给就一个都不生成
+    //Additional files must report the AvaloniaXaml item group, which the UI generators filter on and otherwise produce nothing
     private sealed class OptionsProvider : AnalyzerConfigOptionsProvider
     {
         private static readonly AnalyzerConfigOptions None = new EmptyOptions();
@@ -373,8 +358,7 @@ public static class CompilationFactory
         public override AnalyzerConfigOptions GetOptions(AdditionalText textFile) => Xaml;
     }
 
-    //EmptyOptions 什么都不给
-    //取不到时值要给 null 给空串的话生成器会当成属性就是空 那与没有这个属性是两回事
+    //Missing values must be null because an empty string makes generators treat the property as present
     private sealed class EmptyOptions : AnalyzerConfigOptions
     {
         public override bool TryGetValue(string key, out string value)
@@ -385,7 +369,7 @@ public static class CompilationFactory
         }
     }
 
-    //XamlOptions 只认项目项那一项
+    //Only answers the source item group query
     private sealed class XamlOptions : AnalyzerConfigOptions
     {
         public override bool TryGetValue(string key, out string value)

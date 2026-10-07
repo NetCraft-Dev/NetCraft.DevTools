@@ -1,10 +1,9 @@
 namespace NetCraft.ModBuild.Core;
 
-//ArgumentLine 把配置里写的一行参数拆成一条条命令行参数
-//按空白拆 双引号能裹住带空格的取值 引号本身不留在结果里
+//ArgumentLine splits one configured argument line into command line arguments; double quotes group values with spaces and are stripped
 internal static class ArgumentLine
 {
-    //Split 拆一行 空行拆出空表
+    //Splits a line, an empty line yielding an empty array
     public static string[] Split(string line)
     {
         var parts = new List<string>();
@@ -36,7 +35,7 @@ internal static class ArgumentLine
             started = true;
         }
 
-        //收尾时还攒着东西就是最后一个参数 引号没闭合也认它
+        //Whatever is still buffered is the final argument, accepted even if the quote never closed
         if (started)
             parts.Add(builder.ToString());
 

@@ -4,30 +4,28 @@ using NetCraft.ModBuild.Tools;
 
 namespace NetCraft.ModBuild.Compile;
 
-//ProjectReferences <References> 下 <Project> 那类引用的处理
-//被引用工程没编过就先编一遍 引用方只拿它的产物当编译引用 不内嵌也不部署
-//被引用工程自己还可能带着引用 一路递归下去 环由 Building 挡掉
+//Handles the <Project> entries under <References>
+//A referenced project is built first and only its output is used as a compile reference, never embedded or deployed
+//References nest recursively and cycles are caught through Building
 internal static class ProjectReferences
 {
-    //CsprojConfiguration 被引用工程还是普通 csproj 时用的构建配置
-    //那种工程没有 ncproj 的配置可读 只能取一个通用值
+    //Build configuration for a referenced project that is still a plain csproj, which has no ncproj config to read from
     private const string CsprojConfiguration = "Release";
 
-    //Building 正在构建的工程目录 挡循环引用
+    //Project directories currently being built, used to catch cycles
     private static readonly HashSet<string> Building = new(StringComparer.OrdinalIgnoreCase);
 
-    //Cache 工程目录到产物路径 一次运行里同一份引用只解析一遍
-    //值为 null 表示之前解析失败过 失败也缓存 免得反复报同一件事
+    //Project directory to output path, resolving each reference once per run and caching failures too so the same error is not reported repeatedly
     private static readonly Dictionary<string, string?> Cache = new(StringComparer.OrdinalIgnoreCase);
 
-    //Clear 每次构建开工前清一遍 别让上一次的结果串到这一次
+    //Reset before each build so results do not leak between runs
     public static void Clear()
     {
         Building.Clear();
         Cache.Clear();
     }
 
-    //Build 把配置里声明的工程引用都备好 返回是否成功
+    //Prepares every project reference declared in the config and reports success
     public static bool Build(string root, NcProject project, out string error)
     {
         error = string.Empty;
@@ -40,7 +38,7 @@ internal static class ProjectReferences
         return true;
     }
 
-    //Products 这些引用的产物程序集 没解析出来的忽略
+    //Output assemblies of these references, ignoring anything that failed to resolve
     public static IEnumerable<string> Products(string root, NcProject project)
     {
         foreach (var include in project.ProjectReferences)
@@ -53,7 +51,7 @@ internal static class ProjectReferences
         }
     }
 
-    //Resolve 解析一条工程引用 必要时编一遍被引用的工程
+    //Resolves one project reference, building it when needed
     private static string? Resolve(string root, string include, out string error)
     {
         error = string.Empty;
@@ -85,7 +83,7 @@ internal static class ProjectReferences
         }
     }
 
-    //DirectoryOf 一条引用落在哪个目录 可以指工程目录也可以指工程文件
+    //Directory a reference points at, accepting either a project directory or a project file
     private static string? DirectoryOf(string root, string include)
     {
         var path = Path.GetFullPath(Path.Combine(root, include));
@@ -93,12 +91,11 @@ internal static class ProjectReferences
         return directory is not null && Directory.Exists(directory) ? directory : null;
     }
 
-    //Compile 编一个被引用的工程 返回它的产物程序集路径
-    //有 ncproj 走直编 只有 csproj 就交给 dotnet
+    //Builds a referenced project and returns its output assembly; ncproj goes through the direct compiler and a plain csproj through dotnet
     private static string? Compile(string directory, out string error)
     {
         error = string.Empty;
-        //TryFind 会往上找 找到父工程去了就当作这个目录里没有配置
+        //TryFind walks upward, so a config found in a parent project means this directory has none
         var config = NcProject.TryFind(directory, out var configError);
         if (config is not null && SamePath(config.Directory, directory))
             return CompileProject(directory, config, out error);
@@ -112,8 +109,7 @@ internal static class ProjectReferences
         return CompileCsproj(directory, out error);
     }
 
-    //CompileProject 走直编那条路
-    //内核 包 它自己的引用三样按同一顺序备齐 与主工程那边一致
+    //Direct compile path, provisioning the kernel, packages and its own references in the same order as the main project
     private static string? CompileProject(string directory, NcProject config, out string error)
     {
         if (!KernelStore.Sync(directory, config))
@@ -140,8 +136,7 @@ internal static class ProjectReferences
         return Compiler.Compile(directory, config, name, target, out error) ? target : null;
     }
 
-    //CompileCsproj 还没迁移的工程交给 dotnet 编
-    //产物从 bin/<配置> 下按工程名找 不猜目标框架那一层叫什么
+    //Projects not yet migrated go through dotnet, with the output found under bin/<configuration> by project name since the framework folder name is unknown
     private static string? CompileCsproj(string directory, out string error)
     {
         error = string.Empty;
@@ -159,7 +154,7 @@ internal static class ProjectReferences
         {
             WorkingDirectory = directory,
         };
-        //ncm 的输出统一走英文 子进程别跟着系统语言变
+        //Keep child process output in English regardless of the system language
         startInfo.Environment["DOTNET_CLI_UI_LANGUAGE"] = "en";
         startInfo.ArgumentList.Add("build");
         startInfo.ArgumentList.Add("--configuration");
@@ -194,7 +189,7 @@ internal static class ProjectReferences
         return product;
     }
 
-    //SamePath 两个目录是不是同一个 引用工程不能认到父工程头上
+    //Whether two directories are the same, since a reference must not resolve to a parent project
     private static bool SamePath(string left, string right)
         => string.Equals(Path.GetFullPath(left), Path.GetFullPath(right), StringComparison.OrdinalIgnoreCase);
 }

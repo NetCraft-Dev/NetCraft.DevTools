@@ -2,15 +2,14 @@ using NetCraft.ModBuild.Core;
 
 namespace NetCraft.ModBuild.Tools;
 
-//RunServerTool 在当前目录把 NetCraft 服务端跑起来
-//运行时文件从程序根目录的 Server 取 存档与日志落在当前目录的 run 下
-//开服前把当前模组备进 run/mods 后面的参数一个不解析 原样交给服务端
+//RunServerTool runs the NetCraft server against the current directory
+//Runtime files come from the Server folder under the program root, while saves and logs land in run here
+//It stages the current mod into run/mods first and passes the remaining arguments to the server untouched
 internal static class RunServerTool
 {
-    //RefreshOption 按远端清单刷运行时文件 带上它就不要求模组项目也不构建
+    //RefreshOption refreshes the runtime files against the remote index, skipping both the mod project and the build
     private const string RefreshOption = "--refresh";
 
-    //Register 把本工具登记进注册表 名字说明与参数都写在这一行
     public static void Register()
         => ToolRegistry.Register("runserver", "Build the current mod and run the NetCraft server", Run,
         [
@@ -18,12 +17,11 @@ internal static class RunServerTool
             new("[server args]", "Everything after runserver is passed to the server unchanged"),
         ]);
 
-    //Run 备齐运行时文件与客户端 jar 备好模组 再交给启动器
-    //前置步骤任何一步没过都到不了启动那一步
+    //Run prepares the runtime files and the client jar, stages the mod and hands off to the launcher
     private static int Run(string[] args)
     {
-        //配置是可选的 不在模组项目里也要能把运行时文件刷起来
-        //缓存位置 内核来源 jar 版本都从它来 读不动就说一声接着走默认
+        //The config is optional so the runtime files can be refreshed outside a mod project
+        //It supplies the cache location, kernel source and jar version; when unreadable it warns and continues with defaults
         var config = NcProject.TryFind(Environment.CurrentDirectory, out var configError);
         if (!string.IsNullOrEmpty(configError))
         {
@@ -35,22 +33,22 @@ internal static class RunServerTool
         ServerStore.Configure(config);
         ClientStore.Configure(config);
 
-        //--refresh 只管刷运行时文件 当前目录是不是模组项目都无所谓
+        //--refresh only refreshes the runtime files, mod project or not
         if (Array.IndexOf(args, RefreshOption) >= 0)
             return ServerStore.Refresh() ? ServerLauncher.Launch(Arguments(config, WithoutRefresh(args))) : 1;
 
         if (!ServerStore.Ensure())
             return 1;
 
-        //run 目录在不在得赶在备模组之前看 那一步会把 run 建出来
+        //Check for the run directory before staging, since staging creates it
         var firstRun = !Directory.Exists(ServerLauncher.RunDirectory);
 
-        //客户端 jar 跟着预下载一起备好 首次开服要拿它把 assets 提出来
+        //The client jar comes from the predownload; the first launch uses it to extract the assets
         var jar = ClientStore.Ensure();
         if (jar is null)
             return 1;
 
-        //构建与部署都按项目根来 不在模组项目里就没什么可开的
+        //Build and deploy both work from the project root, so nothing can launch outside a mod project
         var project = ModProject.TryFind(Environment.CurrentDirectory);
         if (project is null)
         {
@@ -68,8 +66,8 @@ internal static class RunServerTool
         return ServerLauncher.Launch(firstRun ? WithJarPath(arguments, jar) : arguments);
     }
 
-    //Arguments 把配置里的自带参数与调试开关并到用户参数前面
-    //用户参数在后 同名的能压过配置里那份
+    //Arguments puts the config's own arguments and debug flag ahead of the user's
+    //User arguments come last so they override the config ones
     private static string[] Arguments(NcProject? config, string[] args)
     {
         var combined = new List<string>(ArgumentLine.Split(config?.Server.Args ?? string.Empty));
@@ -80,12 +78,12 @@ internal static class RunServerTool
         return combined.ToArray();
     }
 
-    //WithJarPath 首次开服把客户端 jar 指给服务端
-    //assets 提过一次就长在 run 里了 之后每次再指它只是白跑一趟 自己传了参数的就按自己那份来
+    //WithJarPath points the server at the client jar on the first launch
+    //The assets stay in run after being extracted once, so it defers to any --jar-path the user already passed
     private static string[] WithJarPath(string[] args, string jar)
         => args.Contains("--jar-path") ? args : [.. args, "--jar-path", jar];
 
-    //WithoutRefresh --refresh 是 ncm 自己的开关 不往服务端传
+    //WithoutRefresh strips --refresh, which is ncm's own switch and must not reach the server
     private static string[] WithoutRefresh(string[] args)
         => args.Where(arg => arg != RefreshOption).ToArray();
 }

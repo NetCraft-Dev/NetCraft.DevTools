@@ -5,30 +5,29 @@ using TargetFramework = NetCraft.ModBuild.Compile.TargetFramework;
 
 namespace NetCraft.ModBuild.Tools;
 
-//UpgradeTool 把 csproj 那种模组项目迁成 .ncproj
-//原 csproj 改名备份 ncm 认不出的属性逐条列出来让人自己处理
+//UpgradeTool converts a csproj based mod project into a .ncproj one
+//The original csproj is renamed as a backup and properties ncm cannot map are listed for manual handling
 internal static class UpgradeTool
 {
-    //BackupExtension 原文件改名后的后缀
+    //BackupExtension is the suffix given to the renamed original file
     private const string BackupExtension = ".bak";
 
-    //DependencyTargetName 模板里负责内嵌依赖的那个目标 ncm 已经接手 见到不必提示处理
+    //DependencyTargetName is the template target that embeds dependencies, which ncm takes over so it is not worth reporting
     private const string DependencyTargetName = "EmbedDependencies";
 
-    //DeployTargetName 模板里负责把产物送到宿主目录的那个目标
+    //DeployTargetName is the template target that copies the output to the host directories
     private const string DeployTargetName = "DeployModToHosts";
 
-    //RuntimeTargetName ncm 那种工程里删 msbuild 运行时副本的目标 ncm 自己不走 msbuild
+    //RuntimeTargetName is the target that drops the msbuild runtime copies, which ncm does not use
     private const string RuntimeTargetName = "DropMsBuildRuntime";
 
-    //Register 把本工具登记进注册表 名字说明与参数都写在这一行
     public static void Register()
         => ToolRegistry.Register("upgrade", "Convert a csproj based mod project to a .ncproj one", Run,
         [
             new("[file]", "The csproj to convert, defaults to the only csproj in the current directory"),
         ]);
 
-    //Run 找源文件 读一遍 写出 .ncproj 再把原件改名
+    //Run finds the source file, reads it, writes the .ncproj and renames the original
     private static int Run(string[] args)
     {
         if (args.Length > 1)
@@ -64,7 +63,7 @@ internal static class UpgradeTool
             return 1;
         }
 
-        //同名的那份已经在就停下 覆盖掉别人手写的配置比报个错糟糕得多
+        //Stop when the same-named target exists, since overwriting a hand-written config is far worse than an error
         var target = Path.ChangeExtension(source, NcProject.Extension);
         if (File.Exists(target))
         {
@@ -90,7 +89,7 @@ internal static class UpgradeTool
         return 0;
     }
 
-    //SingleCsproj 目录里唯一那个 csproj 有多个或一个都没有就报错
+    //SingleCsproj is the only csproj in the directory, erroring when there are several or none
     private static string? SingleCsproj(string directory)
     {
         var files = Directory.EnumerateFiles(directory, "*.csproj").ToList();
@@ -103,7 +102,7 @@ internal static class UpgradeTool
         return null;
     }
 
-    //Read 把工程里能对上的东西挑出来 对不上的分门别类记下
+    //Read picks out what maps cleanly and records the rest by category
     private static Migration Read(XElement root)
     {
         var migration = new Migration();
@@ -137,8 +136,8 @@ internal static class UpgradeTool
         return migration;
     }
 
-    //ReadDeployTarget 把产物复制到宿主目录的那条目标
-    //宿主写死在工程里就照搬 靠命令行传的那种取不到值 提示改用 <Deploy>
+    //ReadDeployTarget handles the target that copies the output to the host directories
+    //Hosts hardcoded in the project carry over, while values passed on the command line cannot be resolved and suggest <Deploy> instead
     private static void ReadDeployTarget(XElement target, Migration migration)
     {
         var hosts = target.Descendants()
@@ -158,7 +157,7 @@ internal static class UpgradeTool
         migration.Migrated.Add($"Deploy {string.Join(';', hosts)}");
     }
 
-    //ReadProperty 认一个属性 认得就迁 认不得先记下来
+    //ReadProperty migrates a recognized property or records the unrecognized one
     private static void ReadProperty(XElement property, Migration migration)
     {
         var name = property.Name.LocalName;
@@ -186,7 +185,7 @@ internal static class UpgradeTool
                     migration.Unhandled.Add($"<OutputType>{value}</OutputType>");
                 break;
             case "OutputPath":
-                //ncproj 的插值只认自己那几个 带 msbuild 变量的照搬过去只会变成死字符串
+                //ncproj only expands its own variables, so msbuild properties would carry over as dead strings
                 if (value.Contains("$(", StringComparison.Ordinal))
                     migration.Unhandled.Add($"<OutputPath>{value}</OutputPath> (ncproj does not expand msbuild properties)");
                 else
@@ -247,7 +246,7 @@ internal static class UpgradeTool
         }
     }
 
-    //ReadItem 认一个项目项 只有包引用要迁 其余多半是 ncm 自己会做的事
+    //ReadItem handles one item; mostly only package references need migrating, the rest is what ncm already does
     private static void ReadItem(XElement item, Migration migration)
     {
         var name = item.Name.LocalName;
@@ -275,7 +274,7 @@ internal static class UpgradeTool
                     return;
                 }
 
-                //带 HintPath 的按 HintPath 走 那才是 dll 真正的位置
+                //References with a HintPath use it, since that is the real location of the dll
                 var file = HintPath(item);
                 var path = file.Length > 0 ? file : include;
                 if (string.IsNullOrWhiteSpace(path))
@@ -347,8 +346,8 @@ internal static class UpgradeTool
         }
     }
 
-    //Compose 把迁过来的东西拼成一份 .ncproj
-    //默认值不写 让配置短一些 读的时候自然落到默认上
+    //Compose assembles the migrated pieces into a .ncproj
+    //Defaults are left out to keep the config short, since reading falls back to them anyway
     private static XDocument Compose(Migration migration)
     {
         var root = new XElement("ncproj", new XAttribute("version", "1"));
@@ -425,7 +424,7 @@ internal static class UpgradeTool
         return new XDocument(root);
     }
 
-    //Report 把这次迁移干了什么 哪些被接手 哪些没迁都报出来
+    //Report prints what the migration did, what ncm takes over and what was not migrated
     private static void Report(Migration migration, string source, string target)
     {
         Console.WriteLine($"Written {Path.GetFileName(target)}");
@@ -436,7 +435,7 @@ internal static class UpgradeTool
         Console.WriteLine($"Backed up the original to {Path.GetFileName(source + BackupExtension)}");
     }
 
-    //Write 有小标题的一段 空表就整段不打
+    //Write prints a titled section and skips it entirely when empty
     private static void Write(string title, List<string> lines, ConsoleColor color)
     {
         if (lines.Count == 0)
@@ -450,35 +449,35 @@ internal static class UpgradeTool
         Console.ResetColor();
     }
 
-    //VersionOf 包版本写在属性上或子元素里 两种都认
+    //VersionOf reads the package version from either the attribute or the child element
     private static string VersionOf(XElement item)
         => (string?)item.Attribute("Version")
             ?? item.Elements().FirstOrDefault(element => Folded(element, "Version"))?.Value.Trim()
             ?? string.Empty;
 
-    //LogicalName 内嵌资源写死的资源名
+    //LogicalName is the hardcoded resource name of an embedded resource
     private static string LogicalName(XElement item)
         => (string?)item.Attribute("LogicalName")
             ?? item.Elements().FirstOrDefault(element => Folded(element, "LogicalName"))?.Value.Trim()
             ?? string.Empty;
 
-    //HintPath 程序集引用写明的实际位置 没写返回空
+    //HintPath is the real location of an assembly reference, empty when unset
     private static string HintPath(XElement item)
         => item.Elements().FirstOrDefault(element => Folded(element, "HintPath"))?.Value.Trim() ?? string.Empty;
 
-    //IsManifestOrIcon 这条资源是不是清单或图标 那两样 ncm 自己会嵌
+    //IsManifestOrIcon tells whether the resource is the manifest or the icon, which ncm embeds itself
     private static bool IsManifestOrIcon(string value)
         => value.Contains(ModProject.ManifestName, StringComparison.OrdinalIgnoreCase)
             || value.Contains(ModProject.DefaultIconName, StringComparison.OrdinalIgnoreCase);
 
-    //SetAttribute 有值才写这个属性
+    //SetAttribute writes the attribute only when there is a value
     private static void SetAttribute(XElement element, string name, string value)
     {
         if (value.Length > 0)
             element.SetAttributeValue(name, value);
     }
 
-    //TryBool csproj 里真假两种写法都认
+    //TryBool accepts both the true/false and the enable/disable forms from csproj
     private static bool TryBool(string value, out bool result)
     {
         if (bool.TryParse(value, out result))
@@ -500,19 +499,19 @@ internal static class UpgradeTool
         return false;
     }
 
-    //Folded 两个元素名是否只是大小写不同
+    //Folded compares element names case-insensitively
     private static bool Folded(XElement element, string name)
         => string.Equals(element.Name.LocalName, name, StringComparison.OrdinalIgnoreCase);
 
-    //Migration 这一次迁移的收获
+    //Migration collects the results of one conversion
     private sealed class Migration
     {
         public string AssemblyName { get; set; } = string.Empty;
 
-        //RootNamespace 只影响内嵌资源的默认名字
+        //RootNamespace only affects the default names of embedded resources
         public string RootNamespace { get; set; } = string.Empty;
 
-        //OutputType 只有 Exe 与默认的 Library 两种会写进来
+        //OutputType only ever holds Exe or the default Library
         public string OutputType { get; set; } = string.Empty;
 
         public string Output { get; set; } = string.Empty;
@@ -521,41 +520,41 @@ internal static class UpgradeTool
 
         public string DefineConstants { get; set; } = string.Empty;
 
-        //null 表示工程里压根没写 那就别写进 ncproj 走默认
+        //null means the project does not set it, so it is left out of the ncproj and the default applies
         public bool? Nullable { get; set; }
 
         public bool? ImplicitUsings { get; set; }
 
         public List<NcPackage> Packages { get; } = [];
 
-        //Friends 要开放内部成员的程序集名
+        //Friends are the assemblies that get access to internal members
         public List<string> Friends { get; } = [];
 
-        //Deploy 构建后产物要复制过去的目录
+        //Deploy is where the build output is copied after building
         public List<string> Deploy { get; } = [];
 
-        //AvaloniaResources 要打进资源包的模式
+        //AvaloniaResources are the patterns packed into the resource bundle
         public List<string> AvaloniaResources { get; } = [];
 
-        //Embedded 要打进产物程序集的普通资源
+        //Embedded are the plain resources embedded into the output assembly
         public List<NcResource> Embedded { get; } = [];
 
-        //Files 要直接当编译引用的 dll
+        //Files are the dlls used directly as compile references
         public List<string> Files { get; } = [];
 
-        //Projects 要引用其产物的其他工程
+        //Projects are the other projects whose output is referenced
         public List<string> Projects { get; } = [];
 
-        //Migrated 真迁过去的
+        //Migrated lists what actually carried over
         public List<string> Migrated { get; } = [];
 
-        //Handled ncm 自己会做 丢掉不影响
+        //Handled lists what ncm does itself, so dropping it is harmless
         public List<string> Handled { get; } = [];
 
-        //Unhandled 没人管的 要人自己看一眼
+        //Unhandled lists what needs manual attention
         public List<string> Unhandled { get; } = [];
 
-        //Warnings 迁过去了但值得提醒的
+        //Warnings lists what carried over but deserves a note
         public List<string> Warnings { get; } = [];
     }
 }

@@ -1,16 +1,16 @@
 namespace NetCraft.ModBuild.Diagnostics;
 
-//SourceFiles 项目里的源码文件
-//路径里任何一层只要叫 bin 或 obj 就跳过 那是构建产物 子项目里的同样算
+//SourceFiles enumerates the project's source files
+//any path segment named bin or obj is skipped as build output, including those under nested projects
 internal static class SourceFiles
 {
-    //SkippedDirectories 构建产物目录名 按整段比 免得把 binary 这类名字误伤
+    //SkippedDirectories holds build output directory names compared as whole segments so names like binary are not caught
     private static readonly string[] SkippedDirectories = { "bin", "obj" };
 
-    //Enumerate 项目里的全部 .cs
+    //Enumerate lists all .cs files in the project
     public static IEnumerable<string> Enumerate(string root) => Enumerate(root, "*.cs");
 
-    //Enumerate 按后缀收文件 生成器要读的 axaml 之类从这条走
+    //Enumerate overload taking a pattern, used for files like the axaml the generator reads
     public static IEnumerable<string> Enumerate(string root, string pattern)
     {
         foreach (var path in Directory.EnumerateFiles(root, pattern, SearchOption.AllDirectories))
@@ -20,7 +20,7 @@ internal static class SourceFiles
         }
     }
 
-    //IsGenerated 相对 root 的路径里有没有落在构建产物目录下的那一段
+    //IsGenerated checks whether the path relative to root runs through a build output directory
     internal static bool IsGenerated(string root, string path)
     {
         var relative = Path.GetRelativePath(root, path);

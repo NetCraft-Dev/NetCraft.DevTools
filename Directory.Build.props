@@ -2,16 +2,13 @@
 <Project>
 
   <PropertyGroup>
-    <!-- 目标框架：.NET 10 -->
     <TargetFramework>net10.0</TargetFramework>
 
-    <!-- 语言版本：最新（C# 14 / .NET 10） -->
     <LangVersion>latest</LangVersion>
 
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
 
-    <!-- 中性资源语言 -->
     <NeutralLanguage>en-US</NeutralLanguage>
   </PropertyGroup>
 
@@ -20,7 +17,7 @@
     <Product>NetCraft</Product>
     <Copyright>Copyright (c) NetCraft Contributors</Copyright>
 
-    <!-- ncm 与项目模板共用同一个版本号 发版时改这里 -->
+    <!-- ncm and the project template share this version, so bump it here on release -->
     <VersionPrefix>1.5.4</VersionPrefix>
     <AssemblyVersion>1.5.4.0</AssemblyVersion>
     <FileVersion>1.5.4.0</FileVersion>

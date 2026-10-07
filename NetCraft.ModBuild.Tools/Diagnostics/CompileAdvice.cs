@@ -1,15 +1,15 @@
 namespace NetCraft.ModBuild.Diagnostics;
 
-//CompileAdvice 编译错误的通用修复动作
-//只在算不出可替换建议时兜底 能给出改法的由 CSharpAnalyzer 那侧算
+//CompileAdvice holds generic fixes for compile errors
+//it is a fallback for when no actionable suggestion can be computed, which CSharpAnalyzer handles
 internal static class CompileAdvice
 {
-    //Text 某个编号的通用修复动作 没有就打空
+    //Text returns the generic fixes for a code, or an empty array when none are known
     public static string[] Text(string code)
         => Table.TryGetValue(code, out var known) ? known : Array.Empty<string>();
 
-    //Table 编译错误的修复动作 键是 CS 编号
-    //整张表由 .tmp-scan 那份清单生成 改完清单重跑 apply_helps.py 即可
+    //Table maps a CS code to its fixes
+    //the whole table is generated from the .tmp-scan catalog, so rerun apply_helps.py after changing the catalog
     private static readonly Dictionary<string, string[]> Table = new(StringComparer.Ordinal)
     {
         ["CS0006"] = new[] { "Make sure the metadata file exists, can be accessed, and is included in the compiler's references." },

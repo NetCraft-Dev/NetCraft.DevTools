@@ -3,14 +3,13 @@ using System.Text.Json.Nodes;
 
 namespace NetCraft.ModBuild.Core;
 
-//ModProject 当前所在的模组项目
-//判定只看有没有 ncmod.json 清单 图标文本取清单的 name 空则退回 id
+//The mod project currently in scope; membership is decided solely by ncmod.json and the icon text uses the manifest name, falling back to id
 public sealed class ModProject
 {
-    //ManifestName 清单文件名 加载器与工具都只认这一个名字
+    //Manifest file name; both the loader and the tools recognize only this one
     public const string ManifestName = "ncmod.json";
 
-    //DefaultIconName 清单没写 icon 时约定的图标文件名
+    //Conventional icon file name used when the manifest omits icon
     public const string DefaultIconName = "icon.png";
 
     private ModProject(string manifestPath, string displayName, string id, string version, string iconPath,
@@ -24,27 +23,23 @@ public sealed class ModProject
         Namespace = namespaceName;
     }
 
-    //ManifestPath 清单文件的完整路径
     public string ManifestPath { get; }
 
-    //DisplayName 图标上写的名字
     public string DisplayName { get; }
 
-    //Id 清单里的 mod id 任务插值里当 $(ModId) 用
+    //Mod id from the manifest, exposed as $(ModId) in task interpolation
     public string Id { get; }
 
-    //Version 清单里的版本号 任务插值里当 $(ModVersion) 用
+    //Version from the manifest, exposed as $(ModVersion) in task interpolation
     public string Version { get; }
 
-    //IconPath 图标文件的完整路径 取自清单的 icon 字段
+    //Full icon file path taken from the manifest's icon field
     public string IconPath { get; }
 
-    //Namespace 清单 entry 推出来的命名空间 模板底稿里的占位标识照它填
-    //entry 形如 NetCraft.Test1.ModEntry 去掉最后一段就是命名空间 推不出时为空
+    //Namespace derived from the manifest entry and used to fill placeholders in template drafts; an entry like NetCraft.Test1.ModEntry drops its last segment and empty means it cannot be derived
     public string Namespace { get; }
 
-    //TryFind 从指定目录起逐级向上找模组项目 找不到返回 null
-    //在子目录里执行也能落到项目根 完全不在项目里才算没找到
+    //Walk upward from the given directory looking for a mod project; running in a subdirectory still finds the root and only being fully outside counts as missing
     public static ModProject? TryFind(string directory)
     {
         for (var current = new DirectoryInfo(directory); current is not null; current = current.Parent)
@@ -61,8 +56,7 @@ public sealed class ModProject
         return null;
     }
 
-    //Read 读清单里的 name id 与 icon
-    //清单损坏或读不出名字按没有项目处理 静默退出比抛一堆栈更合适
+    //Read name, id and icon from the manifest; a corrupt manifest or missing name counts as no project since exiting quietly beats dumping a stack
     private static ModProject? Read(string manifestPath, string directory)
     {
         string? name;
@@ -103,15 +97,14 @@ public sealed class ModProject
             NamespaceOf(entry));
     }
 
-    //NamespaceOf 从 entry 里推出命名空间 只有类名没有命名空间时返回空
+    //Derive the namespace from the entry, returning empty when only a class name is present
     private static string NamespaceOf(string? entry)
     {
         var lastDot = entry?.LastIndexOf('.') ?? -1;
         return lastDot > 0 ? entry![..lastDot] : string.Empty;
     }
 
-    //EnsureIcon 清单缺 icon 字段时补上 返回是否真的改过文件
-    //已有非空取值就原样不动 生成位置本来就是照它来的
+    //Add an icon field when the manifest lacks one and report whether the file changed; an existing non-empty value is left alone
     public bool EnsureIcon(string iconFileName)
         => Edit(manifest =>
         {
@@ -125,8 +118,7 @@ public sealed class ModProject
             return true;
         });
 
-    //Edit 把清单读成可改对象交给回调 回调返回 true 才写回 返回是否真的改过文件
-    //清单损坏时按没改过处理 静默跳过比抛一堆栈更合适
+    //Load the manifest as an editable object and write it back only when the callback returns true; a corrupt manifest counts as unchanged since skipping quietly beats dumping a stack
     public bool Edit(Func<JsonObject, bool> change)
     {
         JsonObject? manifest;
@@ -147,7 +139,7 @@ public sealed class ModProject
         return true;
     }
 
-    //GetString 取一个字符串字段 没有或类型不符返回 null
+    //Read a string field, returning null when missing or of the wrong type
     private static string? GetString(JsonElement element, string property)
         => element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()

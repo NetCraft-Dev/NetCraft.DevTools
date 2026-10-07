@@ -3,24 +3,21 @@ using NetCraft.ModBuild.Core;
 
 namespace NetCraft.ModBuild.Gui;
 
-//TemplateWindow 模板面板窗口
-//页面自己带全部数据 宿主只负责起窗与收尾 清单一栏表在页面上由 js 生成
+//The template panel window
+//The page carries all its own data, the host only opens and closes the window, and the catalog table is built in the page by js
 internal static class TemplateWindow
 {
-    //WindowWidth/WindowHeight 开窗尺寸
     private const int WindowWidth = 1100;
     private const int WindowHeight = 720;
 
-    //Show 起窗口并阻塞到它被关掉
     public static void Show(TemplateCatalog? catalog)
     {
-        //页面整段落到临时文件 让窗口按路径去加载
-        //LoadRawString 把整页字符串交给原生那一侧 页面一长就在原生构造里崩（0xC0000005）
+        //Write the whole page to a temp file and let the window load it by path, since handing the page string to LoadRawString crashes in native code once it grows (0xC0000005)
         var page = Path.Combine(Path.GetTempPath(), "ncm-panel.html");
         File.WriteAllText(page, UiPage.Build(catalog));
 
         var window = new PhotinoWindow()
-            //静音 Photino 自己那份 API 调用日志 否则每设一个属性就往控制台刷一行
+            //Silence Photino's own api logging, which otherwise prints a line for every property set
             .SetLogVerbosity(0)
             .SetTitle("NetCraft Template Browser")
             .SetUseOsDefaultSize(false)

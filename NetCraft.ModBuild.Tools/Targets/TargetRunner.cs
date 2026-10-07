@@ -10,22 +10,22 @@ using NetCraft.ModBuild.Diagnostics;
 
 namespace NetCraft.ModBuild.Tools;
 
-//TargetRunner 借 msbuild 引擎在内存里拼一个项目 执行包带 targets 里的目标
-//拼出来的项目不落盘 编译也不归它管 只借引擎的求值与本机跑任务的能力
-//编译仍由 Roslyn 直编完成 这里只做编译之后的加工
+//Composes a project in memory to run the targets shipped by the packages through the msbuild engine
+//The composed project never hits disk and does not compile anything, it only borrows engine evaluation and local task running
+//Compilation itself stays with the Roslyn direct build, so this is only the post-compile step
 internal static class TargetRunner
 {
-    //PostBuildTargets 编译完成之后要跑的目标 项目里没定义就跳过
-    //名字与包 targets 里的一致 以后要接别的包把它的目标名补进来
+    //Targets to run after compilation, skipped when the project does not define them
+    //Names match the package targets, add another package's target name here to wire it in
     private static readonly string[] PostBuildTargets = ["CompileAvaloniaXaml"];
 
-    //Run 执行这批后处理目标 返回是否可以继续
-    //assembly 是刚直编出来的产物 目标多半要原地改写它
+    //Runs the post-build targets and reports whether the build can continue
+    //The assembly is the direct build's output and the targets usually rewrite it in place
     public static bool Run(string root, NcProject project, string assembly, out string error)
     {
         error = string.Empty;
 
-        //引擎跟着本机 sdk 走 机器上没装 sdk 就只能跳过这一层 别把整个构建拖垮
+        //The engine follows the local sdk, so a machine without one skips this layer instead of failing the whole build
         if (!MsBuildLibrary.Attach(out var engineError))
         {
             Console.WriteLine($"warning: {engineError}, the targets of the packages are skipped");
@@ -73,8 +73,8 @@ internal static class TargetRunner
         }
     }
 
-    //Compose 拼出内存项目
-    //属性与项都按直编那套来 引用直接用算好的清单 不经过包还原那一层
+    //Composes the in-memory project
+    //Properties and items mirror the direct build so references come from the precomputed list instead of package restore
     private static string Compose(string root, NcProject project, string assembly)
     {
         var name = AssemblyName(root, project);
@@ -90,13 +90,13 @@ internal static class TargetRunner
         builder.AppendLine("    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>");
         builder.AppendLine("    <EnableDefaultEmbeddedResourceItems>false</EnableDefaultEmbeddedResourceItems>");
         builder.AppendLine("    <DesignTimeBuild>false</DesignTimeBuild>");
-        //引用与包都由直编那边算好了 这里不走 nuget 资产 也就没有 assets 文件这回事
+        //References and packages are already resolved by the direct build, so nuget assets and the assets file do not apply here
         builder.AppendLine("    <SkipResolvePackageAssets>true</SkipResolvePackageAssets>");
-        //这个项目不产引用程序集 默认开着 sdk 会先给一个 refint 路径
-        //那文件只有它自己那条编译目标才会生成 直编根本不跑那条
-        //Avalonia 认为无需写回时会去给那个文件打时间戳 路径在文件不在直接抛
+        //This project produces no reference assembly, so the refint path the sdk hands out by default is a file nothing creates
+        //Only the sdk's own compile target would create it and the direct build never runs that target
+        //Avalonia timestamps the missing file when it decides no write-back is needed, which throws
         builder.AppendLine("    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>");
-        //产物交给 sdk 认定的那个中间位置 目标改写的就是它 改完再收回产物目录
+        //The output is staged at the sdk's own intermediate location, which is what the targets rewrite before it is collected back into the output directory
         builder.AppendLine($"    <NcmAssembly>{Escape(assembly)}</NcmAssembly>");
         builder.AppendLine($"    <NcmOutput>{Escape(assembly)}</NcmOutput>");
         builder.AppendLine($"    <BaseIntermediateOutputPath>{Escape(Intermediate(root))}{Path.DirectorySeparatorChar}</BaseIntermediateOutputPath>");
@@ -113,11 +113,11 @@ internal static class TargetRunner
             builder.AppendLine($"    <AvaloniaXaml Include=\"{Escape(file)}\" />");
         builder.AppendLine("  </ItemGroup>");
 
-        //包的 targets 按它自己的相对结构导入 任务程序集路径靠 MSBuildThisFileDirectory 解析
+        //Package targets are imported with their own relative layout so task assembly paths resolve through MSBuildThisFileDirectory
         foreach (var import in PackageTargets.Imports(root))
             builder.AppendLine($"  <Import Project=\"{Escape(import)}\" />");
 
-        //sdk 认定中间产物在哪个位置我们就备到哪 不去猜它的目录结构
+        //Stage the assembly wherever the sdk expects intermediates instead of guessing its directory layout
         builder.AppendLine("""
               <Target Name="NcmStageAssembly" BeforeTargets="CompileAvaloniaXaml">
                 <Copy SourceFiles="$(NcmAssembly)" DestinationFiles="@(IntermediateAssembly)" SkipUnchangedFiles="false" />
@@ -131,22 +131,22 @@ internal static class TargetRunner
         return builder.ToString();
     }
 
-    //Intermediate 交给 targets 的中间目录 都塞在 Build 下
+    //Intermediate directory handed to the targets, kept under Build
     private static string Intermediate(string root)
         => Path.Combine(root, ProjectLayout.Intermediate);
 
-    //AssemblyName 产物名 与直编那边同一套取法
+    //Output name, derived the same way as the direct build
     private static string AssemblyName(string root, NcProject project)
         => string.IsNullOrWhiteSpace(project.Build.AssemblyName)
             ? new DirectoryInfo(root).Name
             : project.Build.AssemblyName;
 
-    //RootNamespace 配置里写了就用它 没写跟产物名走
+    //Uses the configured root namespace, falling back to the assembly name
     private static string RootNamespace(NcProject project, string name)
         => string.IsNullOrWhiteSpace(project.Build.RootNamespace) ? name : project.Build.RootNamespace;
 
-    //Sdks 让引擎找得到本机 sdk 少了它 Sdk 属性那句没法求值
-    //扩展路径也要一起指过去 sdk 根下才有 Current\Microsoft.Common.props
+    //Points the engine at the local sdk, without which the Sdk attribute cannot be evaluated
+    //The extensions paths must point at the sdk root too so Current\Microsoft.Common.props resolves
     internal static void Sdks()
     {
         var sdk = MsBuildLibrary.SdkDirectory;
@@ -158,7 +158,7 @@ internal static class TargetRunner
         Keep("MSBuildExtensionsPath", sdkRoot);
         Keep("MSBuildExtensionsPath32", sdkRoot);
         Keep("MSBuildExtensionsPath64", sdkRoot);
-        //引擎按 msbuild 程序集的位置找 SdkResolvers 指到 sdk 里那份它就认 sdk 目录
+        //The engine locates SdkResolvers relative to the msbuild assembly, so pointing at the sdk copy makes it accept the sdk directory
         var exe = Path.Combine(sdk, "MSBuild.dll");
         if (File.Exists(exe))
             Keep("MSBUILD_EXE_PATH", exe);
@@ -166,14 +166,13 @@ internal static class TargetRunner
         Trace.Log($"sdk {sdk}");
     }
 
-    //Keep 已经指着的就不动 只补空的
+    //Only fills unset variables, leaving already-pointed ones untouched
     private static void Keep(string name, string value)
     {
         if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(name)))
             Environment.SetEnvironmentVariable(name, value);
     }
 
-    //Escape xml 里的路径要转义
     private static string Escape(string value)
         => value.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
 }

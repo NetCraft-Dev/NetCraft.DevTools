@@ -1,20 +1,17 @@
 namespace NetCraft.ModBuild.Core;
 
-//Transfer 下载入口
-//清单那类小块一次性读回 大文件流式落盘 落盘途中把字节进度报给回调
+//Download entry point; small pieces like catalogs are read in one shot while large files stream to disk, reporting byte progress to a callback
 internal static class Transfer
 {
-    //Http 共用一份 超时按大文件放宽
+    //Shared client with a relaxed timeout for large files
     internal static readonly HttpClient Http = new() { Timeout = TimeSpan.FromMinutes(5) };
 
-    //BufferSize 流式读取的块大小
     private const int BufferSize = 128 * 1024;
 
-    //Enabled 是否画进度条
-    //输出被重定向时不画 否则会把控制字符灌进管道 脚本里读输出会被弄脏
+    //Whether to draw a progress bar; skipped when output is redirected so control characters do not pollute pipes read by scripts
     internal static bool Enabled { get; set; } = !Console.IsOutputRedirected;
 
-    //GetBytes 取一小段内容 几 KB 的清单走这里 不值得为它开进度
+    //Fetch a small payload such as a few-KB catalog where a progress bar is not worth it
     public static byte[]? GetBytes(string url, out string error)
     {
         error = string.Empty;
@@ -30,8 +27,7 @@ internal static class Transfer
         }
     }
 
-    //DownloadToFile 流式下载到目标路径 先落临时文件 整份写完再挪过去
-    //report 每读到一块回调一次 服务端不给 Content-Length 时总长为 null
+    //Stream a download to the target through a temp file moved in place once complete; report fires per buffer and total is null when the server omits Content-Length
     public static bool DownloadToFile(string url, string target, Action<long, long?> report, out string error)
     {
         error = string.Empty;
@@ -70,7 +66,7 @@ internal static class Transfer
         }
     }
 
-    //Discard 删掉写了一半的临时文件 删不掉就留给下次覆盖
+    //Delete a half-written temp file, leaving it for the next overwrite when removal fails
     private static void Discard(string path)
     {
         try

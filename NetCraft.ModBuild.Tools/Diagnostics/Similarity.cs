@@ -1,11 +1,11 @@
 namespace NetCraft.ModBuild.Diagnostics;
 
-//Similarity 名字之间的相近程度 did-you-mean 靠它挑最近的候选
+//Similarity measures how close two names are, backing did-you-mean candidate selection
 internal static class Similarity
 {
-    //Closest 在候选里挑最接近的那个 没有够近的算瞎猜 返回 null
-    //先看以输入打头的那批 少打几个字母是最常见的写法 命中了就不必再比拼写
-    //没有再按编辑距离挑最像的 bound 之外的差太远 列出来只会把人带偏
+    //Closest picks the nearest candidate, returning null when none is close enough instead of guessing
+    //a candidate starting with the input wins first, since abbreviating a name is the common case
+    //otherwise the smallest edit distance within bound wins, as anything farther would mislead
     public static string? Closest(string name, IEnumerable<string> candidates, int? bound = null)
     {
         var pool = candidates
@@ -13,7 +13,7 @@ internal static class Similarity
                 && !string.Equals(candidate, name, StringComparison.Ordinal))
             .ToList();
 
-        //前缀命中取最短的那个 短的离整名更近
+        //among prefix hits the shortest wins, being closest to the full name
         var prefixed = pool.Where(candidate => IsPrefix(name, candidate))
             .OrderBy(candidate => candidate.Length)
             .ThenBy(candidate => candidate, StringComparer.OrdinalIgnoreCase)
@@ -38,11 +38,11 @@ internal static class Similarity
         return best;
     }
 
-    //IsPrefix 名字是不是候选的缩写式开头 单字符太宽 一律不算
+    //IsPrefix checks whether a candidate starts with the name as an abbreviation, treating a single character as too broad
     private static bool IsPrefix(string name, string candidate)
         => name.Length >= 2 && candidate.StartsWith(name, StringComparison.OrdinalIgnoreCase);
 
-    //Rank 把候选按接近程度排好 取前几个
+    //Rank orders candidates by closeness and takes the first few
     public static List<string> Rank(string name, IEnumerable<string> candidates, int take, int? bound = null)
     {
         var limit = bound ?? Math.Max(2, name.Length / 2);
@@ -57,7 +57,7 @@ internal static class Similarity
             .ToList();
     }
 
-    //Distance 两个名字的编辑距离 大小写不计
+    //Distance computes the edit distance between two names, ignoring case
     public static int Distance(string a, string b)
     {
         if (a.Length == 0)

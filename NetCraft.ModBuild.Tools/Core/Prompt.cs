@@ -1,51 +1,43 @@
 namespace NetCraft.ModBuild.Core;
 
-//FormField 表单里的一行
+//FormField, one row of a form
 public sealed class FormField(string key, string label, bool required = false)
 {
-    //Key 取值时用来认出这一行
     public string Key { get; } = key;
 
-    //Label 行首显示的字段名
     public string Label { get; } = label;
 
-    //Required 必填项 空着不放行
+    //Required fields block submission while empty
     public bool Required { get; } = required;
 
-    //Value 用户填的内容
     public string Value { get; set; } = string.Empty;
 
-    //IsFilled 这一项是否已经填了
     public bool IsFilled => !string.IsNullOrWhiteSpace(Value);
 
-    //Validate 值每变动一次就判一回 决定这一行显示什么颜色 不设就走默认配色
+    //Runs on every value change to pick the row color; null falls back to the default palette
     public Func<string, FieldState>? Validate { get; set; }
 }
 
-//FieldState 一行内容当前看起来对不对
+//How valid a row currently looks
 public enum FieldState
 {
-    //Normal 没问题
     Normal,
 
-    //Warn 能用但建议改
     Warn,
 
-    //Error 这样不行
     Error,
 }
 
-//Prompt 交互原语
-//输入或输出被重定向时自动退化成逐行问答 脚本与 CI 里也能跑
+//Prompt interaction primitives; with redirected input or output they degrade to line-by-line questions so scripts and CI still work
 public static class Prompt
 {
-    //InvalidHighlight 必填没填时红色提示的停留时长
+    //How long the missing-field highlight stays red
     private static readonly TimeSpan InvalidHighlight = TimeSpan.FromSeconds(3);
 
-    //MaxLineAttempts 逐行模式下缺必填最多再问几轮
+    //Extra rounds the line mode re-asks for missing required fields
     private const int MaxLineAttempts = 3;
 
-    //Confirm 问一个是非题 defaultYes 决定空回车算哪一边 warn 为真时整句用黄色
+    //Ask a yes/no question; defaultYes decides the empty answer and warn colors the whole prompt yellow
     public static bool Confirm(string question, bool defaultYes, bool warn = false)
     {
         if (warn)
@@ -59,10 +51,7 @@ public static class Prompt
         return answer.StartsWith("y", StringComparison.OrdinalIgnoreCase);
     }
 
-    //Form 收集一组字段 返回必填项是否都填上了
-    //终端里是纵列表单 上下键选行 直接敲字符填值 回车提交
-    //必填没填时按回车不放行 空的项标红三秒并把指针带到最近的那个必填项
-    //重定向时逐行提问 每行一次 ReadLine 填不全由调用方按返回值处置
+    //Collect a group of fields and report whether every required one is filled; at a terminal it is an arrow-key form that blocks Enter and jumps to the nearest missing field, and under redirection it asks one line per field
     public static bool Form(IReadOnlyList<FormField> fields)
     {
         if (fields.Count == 0)
@@ -70,7 +59,7 @@ public static class Prompt
 
         if (Console.IsInputRedirected || Console.IsOutputRedirected)
         {
-            //降级要让人看得见 不然用户只会以为是终端坏了
+            //The fallback must be visible or users just assume the terminal is broken
             Console.WriteLine("Interactive form is not available here (console is redirected), using line-by-line prompts.");
             return FillByLines(fields);
         }
@@ -78,13 +67,12 @@ public static class Prompt
         return FillInteractive(fields);
     }
 
-    //FillByLines 逐行问答 空行表示不填这一项
-    //缺必填就再问一轮 只补还空着的那些 输入断了就作罢 免得在管道里空转
+    //Line-by-line prompts where an empty line skips a field; missing required fields trigger another round and a broken input ends it to avoid spinning in a pipe
     private static bool FillByLines(IReadOnlyList<FormField> fields)
     {
         for (var attempt = 0; attempt < MaxLineAttempts; attempt++)
         {
-            //首轮挨个问 之后只补还空着的必填项
+            //Ask everything on the first round, then only the still-empty required fields
             IReadOnlyList<FormField> pending = attempt == 0
                 ? fields
                 : fields.Where(field => field.Required && !field.IsFilled).ToList();
@@ -113,14 +101,13 @@ public static class Prompt
         return false;
     }
 
-    //FillInteractive 列表表单
-    //先占好整块行数 之后每帧把光标移回块首原地重绘 免得重画时整屏滚动
+    //Interactive list form; reserve the block's lines up front and redraw in place each frame so repainting does not scroll the screen
     private static bool FillInteractive(IReadOnlyList<FormField> fields)
     {
         for (var i = 0; i < fields.Count; i++)
             Console.WriteLine();
 
-        //占满一行后光标会停在块末 由此反推块首 触底滚动时夹住不越界
+        //The cursor rests after the block, so derive the top from it and clamp to stay in bounds when scrolled to the bottom
         var top = Math.Max(0, Console.CursorTop - fields.Count);
         var selected = 0;
         var highlightUntil = DateTime.MinValue;
@@ -134,7 +121,7 @@ public static class Prompt
                 var highlighting = DateTime.UtcNow < highlightUntil;
                 DrawFrame(top, fields, selected, highlighting);
 
-                //标红要自己过期 过期前也接按键 一按就当即恢复常态
+                //The highlight expires on its own but keys still register, immediately restoring the normal look
                 if (highlighting)
                 {
                     while (!Console.KeyAvailable && DateTime.UtcNow < highlightUntil)
@@ -175,14 +162,13 @@ public static class Prompt
         finally
         {
             SetCursorVisible(showCursor);
-            //提交或异常都要把光标落到块外 后续输出别糊在表单上
+            //Move the cursor below the block on commit or exception so later output does not overlap the form
             Console.SetCursorPosition(0, Math.Min(top + fields.Count - 1, Console.BufferHeight - 1));
             Console.WriteLine();
         }
     }
 
-    //FirstMissing 从当前行往下绕一圈找最近的那个没填的必填项 找不着返回 -1
-    //从下一行起数 绕满一圈会回到当前行自己 所以它是空的也会被认出来
+    //Find the nearest empty required field scanning downward and wrapping, starting at the next row so the current one is still checked; -1 when none
     private static int FirstMissing(IReadOnlyList<FormField> fields, int selected)
     {
         for (var offset = 1; offset <= fields.Count; offset++)
@@ -194,15 +180,14 @@ public static class Prompt
         return -1;
     }
 
-    //SetCursorVisible 光标可见性只有 Windows 支持 别处连读都会抛
+    //Cursor visibility is Windows-only, reading it elsewhere throws
     private static void SetCursorVisible(bool visible)
     {
         if (OperatingSystem.IsWindows())
             Console.CursorVisible = visible;
     }
 
-    //DrawFrame 重绘整块表单 当前行反白 行尾补空格抹掉上一帧的残留
-    //highlightInvalid 为真时空着的必填项整行标红 必填项标签后面带一个星号
+    //Redraw the whole form in place, padding lines to erase the previous frame; required labels carry an asterisk and highlightInvalid reddens the empty ones
     private static void DrawFrame(int top, IReadOnlyList<FormField> fields, int selected, bool highlightInvalid)
     {
         var width = Math.Max(Console.WindowWidth - 1, 20);
@@ -214,7 +199,7 @@ public static class Prompt
             var label = field.Required ? $"{field.Label} *" : field.Label;
             var line = $"{(i == selected ? ">" : " ")} {label}: {field.Value}";
 
-            //校验状态优先 该改的地方先让人看见 选中只是光标在哪一行
+            //Validation state wins over selection so problems stand out; selection only marks the cursor row
             var state = field.Validate?.Invoke(field.Value) ?? FieldState.Normal;
             Console.ForegroundColor = state switch
             {

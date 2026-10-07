@@ -5,12 +5,11 @@ using Spectre.Console;
 
 namespace NetCraft.ModBuild.Tui;
 
-//UsageTui 扫描项目 api 用法的终端界面
-//不铺多面板 只走 概览 问题表 详情 这条线 判断都交给已有的 ApiUsage 这边只负责展示与动作
-//输入输出被重定向时退回一次性报告 脚本与 ci 里也能跑
+//Terminal ui for scanning api usage in a project
+//Keeps a single flow of summary, problem table and detail, presenting what ApiUsage already decided
+//Falls back to a one-shot report when input or output is redirected, so scripts and ci can still run it
 internal static class UsageTui
 {
-    //Run 入口 返回进程退出码
     public static int Run()
     {
         var catalog = TemplateStore.LoadCatalog();
@@ -31,11 +30,10 @@ internal static class UsageTui
         return IsInteractive() ? Loop(root, catalog, project) : Report(root, catalog, project);
     }
 
-    //IsInteractive 输入输出都没被重定向才当有终端
     private static bool IsInteractive()
         => !Console.IsInputRedirected && !Console.IsOutputRedirected;
 
-    //Report 一次性报告 有 error 返回非零 便于钉在构建脚本里
+    //Returns non-zero on errors so it can gate a build script
     private static int Report(string root, TemplateCatalog catalog, ModProject project)
     {
         var report = UsageReport.Scan(root, catalog);
@@ -44,7 +42,7 @@ internal static class UsageTui
         return report.ErrorCount > 0 ? 1 : 0;
     }
 
-    //Loop 主循环 扫一次可以反复看 重新扫描才再走一遍源码
+    //Scans once and lets you browse, only a rescan walks the source again
     private static int Loop(string root, TemplateCatalog catalog, ModProject project)
     {
         var report = ScanWithStatus(root, catalog, project);
@@ -82,12 +80,11 @@ internal static class UsageTui
         }
     }
 
-    //ScanWithStatus 扫描时转个圈 这一步要读遍项目源码 没提示会像是卡住了
+    //A spinner is needed here because reading the whole project source otherwise looks like a hang
     private static UsageReport ScanWithStatus(string root, TemplateCatalog catalog, ModProject project)
         => AnsiConsole.Status()
             .Start($"scanning {project.DisplayName}...", _ => UsageReport.Scan(root, catalog))!;
 
-    //AskEntry 主菜单 选一条用法 或者重新扫描 或者退出
     private static Entry AskEntry(UsageReport report)
     {
         var entries = new List<Entry>();
@@ -107,7 +104,6 @@ internal static class UsageTui
             .AddChoices(entries));
     }
 
-    //AskDetail 详情页的动作
     private static DetailAction AskDetail()
         => AnsiConsole.Prompt(new SelectionPrompt<DetailAction>()
             .Title("[grey]what next[/]")
@@ -124,8 +120,8 @@ internal static class UsageTui
                 DetailAction.Rescan,
                 DetailAction.Quit));
 
-    //WriteExample 把候选里能在清单里找到的条目拉到当前目录
-    //候选写的是代码里的名字 清单里是完整标识 两边按类型名对齐
+    //Pulls catalog entries matching a candidate into the current directory
+    //Candidates use code names while the catalog uses fully qualified ids, so the two line up on the type name
     private static void WriteExample(TemplateCatalog catalog, ApiUsageItem usage)
     {
         var matches = MatchingEntries(catalog, usage);
@@ -146,7 +142,7 @@ internal static class UsageTui
         TemplateTool.PullExample(catalog, entry);
     }
 
-    //MatchingEntries 按候选的类型名在清单里找条目 候选一个都没有时退回这处用法自己的类型名
+    //Finds catalog entries by candidate type name, falling back to the usage's own type when there are no candidates
     private static List<TemplateEntry> MatchingEntries(TemplateCatalog catalog, ApiUsageItem usage)
     {
         var names = usage.Candidates
@@ -160,21 +156,20 @@ internal static class UsageTui
             .ToList();
     }
 
-    //TypeNameOf 候选写成 类型.成员 或 类型 取前面那段
+    //A candidate is written as Type.Member or Type, so take the leading segment
     private static string TypeNameOf(string candidate)
     {
         var dot = candidate.IndexOf('.');
         return dot < 0 ? candidate : candidate[..dot];
     }
 
-    //LastSegment 清单标识的最后一段就是代码里写的类型名
+    //The last segment of a catalog id is the type name written in code
     private static string LastSegment(string id)
     {
         var dot = id.LastIndexOf('.');
         return dot < 0 ? id : id[(dot + 1)..];
     }
 
-    //EntryAction 主菜单一行的种类
     private enum EntryAction
     {
         Open,
@@ -182,7 +177,6 @@ internal static class UsageTui
         Quit,
     }
 
-    //DetailAction 详情页能做的事
     private enum DetailAction
     {
         WriteExample,
@@ -191,6 +185,6 @@ internal static class UsageTui
         Quit,
     }
 
-    //Entry 主菜单一行 Usage 非空表示它是一条用法
+    //A row in the main menu, a non-null Usage means it opens that usage's detail
     private sealed record Entry(EntryAction Action, string Label, ApiUsageItem? Usage);
 }

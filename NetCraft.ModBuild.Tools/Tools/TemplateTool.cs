@@ -4,11 +4,10 @@ using NetCraft.ModBuild.Tui;
 
 namespace NetCraft.ModBuild.Tools;
 
-//TemplateTool 浏览与拉取模组开发模板
-//清单与示例文件都缓存在程序根目录的 Template 下 只有本地没有时才联网
+//TemplateTool browses and pulls mod development templates
+//The catalog and example files are cached under Template in the program root, going online only when missing locally
 internal static class TemplateTool
 {
-    //Register 把本工具登记进注册表 名字说明与参数都写在这一行
     public static void Register()
         => ToolRegistry.Register("template", "Browse and pull mod templates", Run,
         [
@@ -19,13 +18,13 @@ internal static class TemplateTool
             new("--refresh", "Clear the local cache first and pull everything again"),
         ]);
 
-    //RefreshOption 清掉本地缓存再重新拉 放在子命令前后都行
+    //RefreshOption clears the local cache and pulls everything again, accepted before or after the subcommand
     private const string RefreshOption = "--refresh";
 
-    //Run 第一个非选项参数选子命令
+    //Run picks the subcommand from the first non-option argument
     private static int Run(string[] args)
     {
-        //模板来源跟着当前目录的项目配置走 没有工程就用内置那个
+        //The template source follows the current directory's project config, falling back to the built-in one
         TemplateStore.Configure(NcProject.TryFind(Environment.CurrentDirectory, out _));
 
         var refresh = false;
@@ -41,7 +40,7 @@ internal static class TemplateTool
 
         if (refresh)
         {
-            //下载那条路也要知道这次是刷新 否则还是会命中 CDN 那份旧副本
+            //The download path needs to know this is a refresh, otherwise it would hit the stale CDN copy
             TemplateStore.Refresh = true;
             if (!ClearCache())
                 return 1;
@@ -64,7 +63,7 @@ internal static class TemplateTool
         };
     }
 
-    //ClearCache 删掉整个缓存目录 之后照常走「本地没有就下载」那条路
+    //ClearCache removes the whole cache directory, after which the usual fetch-if-missing path runs
     private static bool ClearCache()
     {
         var root = TemplateStore.Root;
@@ -87,7 +86,7 @@ internal static class TemplateTool
         }
     }
 
-    //View 按模式列出条目 不带模式列全部
+    //View lists entries matching the pattern, or all of them without one
     private static int View(string[] args)
     {
         var catalog = TemplateStore.LoadCatalog();
@@ -118,7 +117,7 @@ internal static class TemplateTool
         return 0;
     }
 
-    //Example 按 id 找到条目再把模板文件拉到当前目录
+    //Example finds the entry by id and pulls its template file into the current directory
     private static int Example(string[] args)
     {
         if (args.Length == 0)
@@ -143,8 +142,8 @@ internal static class TemplateTool
         return PullExample(catalog, entry);
     }
 
-    //PullExample 把一个条目的示例拉到当前目录 供 example 子命令与 tui 共用
-    //缓存命中就不联网 目标已存在时问一句
+    //PullExample pulls an entry's example into the current directory, shared by the example subcommand and the tui
+    //A cache hit skips the network and an existing target asks before overwriting
     internal static int PullExample(TemplateCatalog catalog, TemplateEntry entry)
     {
         if (string.IsNullOrWhiteSpace(entry.Template))
@@ -165,7 +164,7 @@ internal static class TemplateTool
         if (File.Exists(target) && !ConfirmOverwrite(target))
             return 0;
 
-        //底稿里留着两个占位标识 这里照当前项目填掉 不在项目里就统一用 Example
+        //Two placeholders are left in the template and filled from the current project, or from Example outside one
         var text = Fill(File.ReadAllText(source), ModProject.TryFind(Environment.CurrentDirectory), entry.Id);
         File.WriteAllText(target, text);
 
@@ -173,16 +172,16 @@ internal static class TemplateTool
         return 0;
     }
 
-    //NamespaceToken/ClassToken 底稿里留的两个占位标识
+    //NamespaceToken and ClassToken are the two placeholders left in the template
     private const string NamespaceToken = "__MOD_NAMESPACE__";
     private const string ClassToken = "__MOD_CLASS__";
 
-    //FallbackName 不在模组项目里时用的名字
+    //FallbackName is used for both names outside a mod project
     private const string FallbackName = "Example";
 
-    //Fill 把底稿里的占位标识换成当前项目对应的名字
-    //在项目里命名空间取清单 entry 推出来的那个 类名用 api 名加 Example
-    //不在项目里两处都退成 Example
+    //Fill replaces the template placeholders with the names of the current project
+    //Inside a project the namespace comes from the entry manifest and the class is the api name plus Example
+    //Outside one both fall back to Example
     private static string Fill(string text, ModProject? project, string apiId)
     {
         var inside = project is not null && !string.IsNullOrEmpty(project.Namespace);
@@ -194,7 +193,7 @@ internal static class TemplateTool
             .Replace(ClassToken, className);
     }
 
-    //Gui 打开图形面板 清单取不到也照常开 窗口里会说明原因
+    //Gui opens the graphical panel, which still opens without a catalog and explains why in the window
     private static int Gui()
     {
         var catalog = TemplateStore.LoadCatalog();
@@ -202,10 +201,10 @@ internal static class TemplateTool
         return 0;
     }
 
-    //Tui 打开终端面板 侧重扫项目里的 api 用法
+    //Tui opens the terminal panel, which focuses on scanning the project for api usage
     private static int Tui() => UsageTui.Run();
 
-    //Unknown 子命令没认出来
+    //Unknown reports an unrecognized subcommand
     private static int Unknown(string command)
     {
         Console.WriteLine($"Unknown template command: {command}");
@@ -213,7 +212,7 @@ internal static class TemplateTool
         return 1;
     }
 
-    //ConfirmOverwrite 目标已存在时问一句 回车算不覆盖
+    //ConfirmOverwrite asks when the target exists, with an empty answer meaning no
     private static bool ConfirmOverwrite(string path)
     {
         Console.Write($"{Path.GetFileName(path)} already exists. Overwrite? (y/N) ");
@@ -221,7 +220,7 @@ internal static class TemplateTool
         return answer is not null && answer.StartsWith("y", StringComparison.OrdinalIgnoreCase);
     }
 
-    //PrintUsage 子命令一览
+    //PrintUsage lists the subcommands
     private static void PrintUsage()
     {
         Console.WriteLine("Usage: ncm template <command>");

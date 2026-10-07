@@ -3,10 +3,10 @@ using System.Xml.Linq;
 
 namespace NetCraft.ModBuild.Core;
 
-//NcCheck 语法检查的设置
+//C# syntax check settings for the project
 public sealed class NcCheck
 {
-    //DefaultLangVersion 没写时按最新语言版本解析
+    //Language version used when the config omits one
     public const string DefaultLangVersion = "latest";
 
     public NcCheck(string? langVersion)
@@ -14,26 +14,25 @@ public sealed class NcCheck
         LangVersion = string.IsNullOrWhiteSpace(langVersion) ? DefaultLangVersion : langVersion;
     }
 
-    //LangVersion 解析源码用的 C# 语言版本
+    //C# language version used to parse the sources
     public string LangVersion { get; }
 }
 
-//NcBuild 编译相关的设置
+//Build settings for the project
 public sealed class NcBuild
 {
-    //DefaultConfiguration 没写配置时按发布版编
+    //Configuration used when the config omits one
     public const string DefaultConfiguration = "Release";
 
-    //DefaultOutput 产物默认落在项目根的 Build/out 下
+    //Default output directory, relative to the project root
     public static readonly string DefaultOutput = ProjectLayout.Output;
 
-    //DefaultOutputType 没写时编成类库 模组都是这种
+    //Output type used when the config omits one, which is what every mod uses
     public const string DefaultOutputType = "Library";
 
-    //ExeOutputType 编成控制台程序的那个名字
+    //Output type name for a console executable
     public const string ExeOutputType = "Exe";
 
-    //OutputTypes 认得的输出类型
     public static readonly string[] OutputTypes = [DefaultOutputType, ExeOutputType];
 
     public NcBuild(string assemblyName, string configuration, string output, string extraArgs, bool nullable,
@@ -50,48 +49,48 @@ public sealed class NcBuild
         RootNamespace = rootNamespace;
     }
 
-    //AssemblyName 产物程序集名 空表示先看清单的 id 再看目录名
+    //Assembly name, empty falls back to the manifest id and then to the directory name
     public string AssemblyName { get; }
 
-    //Configuration 构建配置名
+    //Build configuration name
     public string Configuration { get; }
 
-    //Output 产物目录 相对项目根
+    //Output directory, relative to the project root
     public string Output { get; }
 
-    //ExtraArgs 追加给编译器的参数 原样传给 dotnet 那条旧路
+    //Extra arguments passed to the compiler invocation
     public string ExtraArgs { get; }
 
-    //Nullable 可空引用类型检查
+    //Nullable reference type checking
     public bool Nullable { get; }
 
-    //ImplicitUsings 是否补隐式 using
+    //Implicit usings
     public bool ImplicitUsings { get; }
 
-    //DefineConstants 编译期符号 分号分隔
+    //Compile-time symbols, semicolon separated
     public string DefineConstants { get; }
 
-    //OutputType 产物种类 见 OutputTypes
+    //Product kind, see OutputTypes
     public string OutputType { get; }
 
-    //RootNamespace 根命名空间 空表示跟产物名走 只影响内嵌资源的默认名字
+    //Root namespace, empty follows the assembly name and only affects the default resource names
     public string RootNamespace { get; }
 
-    //Normalized 输出类型大小写归一 认不出来退回类库
+    //Normalize an output type ignoring case, falling back to the library type
     private static string Normalized(string value)
         => OutputTypes.FirstOrDefault(type => string.Equals(type, value, StringComparison.OrdinalIgnoreCase))
             ?? DefaultOutputType;
 }
 
-//NcPackage 一条包依赖
+//One package dependency
 public sealed record NcPackage(string Id, string Version);
 
-//NcResource 一条要打进产物程序集的资源
-//LogicalName 是资源名 不写就按根命名空间加相对路径算
+//A resource embedded into the output assembly
+//The logical name defaults to the root namespace plus the relative path
 public sealed record NcResource(string Include, string LogicalName);
 
-//NcServer 开发期服务端的设置
-//Cache 指定运行时文件缓存的落点 Args 是每次开服自动带上的参数 Debug 等于常开调试模式
+//Development-time server settings
+//Cache sets the runtime file cache location, Args are applied on every launch and Debug keeps debug mode always on
 public sealed class NcServer
 {
     public NcServer(string cache, string args, bool debug)
@@ -101,18 +100,18 @@ public sealed class NcServer
         Debug = debug;
     }
 
-    //Cache 运行时缓存目录 空表示用 ncm 自带的那个
+    //Runtime cache directory, empty uses the one bundled with ncm
     public string Cache { get; }
 
-    //Args 开服时自动追加的参数 空白分隔 双引号能裹住带空格的取值
+    //Arguments applied on every launch, whitespace separated with double quotes around values containing spaces
     public string Args { get; }
 
-    //Debug 常开调试模式 与命令行 --debug 同一件事
+    //Keeps debug mode always on, same as the --debug command line flag
     public bool Debug { get; }
 }
 
-//NcClient 开发期客户端的设置
-//开客户端那套还没做 这里先解析出来备用
+//Development-time client settings
+//The client launcher is not implemented yet, these are parsed ahead of time
 public sealed class NcClient
 {
     public NcClient(string args, string version, string jar)
@@ -122,27 +121,27 @@ public sealed class NcClient
         Jar = jar;
     }
 
-    //Args 启动客户端时自动追加的参数
+    //Arguments applied when launching the client
     public string Args { get; }
 
-    //Version 客户端 jar 的版本 空表示照内核版本走
+    //Client jar version, empty follows the kernel version
     public string Version { get; }
 
-    //Jar 客户端 jar 的直接下载地址 给了就不再查版本清单
+    //Direct download URL for the client jar, which skips the version manifest
     public string Jar { get; }
 }
 
-//NcSource 内核来源与解析规则
-//Url 是基准地址 Index 是清单文件名 Format 决定清单怎么读 Pattern 只在 regex 下用
+//Kernel source and index parsing rules
+//Url is the base address, Index the index file name, Format how the index is read and Pattern only applies to the regex format
 public sealed class NcSource
 {
-    //DefaultFormat 默认按 sha256sum 那种一行一条的格式读
+    //Default format reads one hash and path per line like sha256sum output
     public const string DefaultFormat = "sha256-lines";
 
-    //DefaultIndex 默认的清单文件名
+    //Default index file name
     public const string DefaultIndex = "index.txt";
 
-    //Formats 认得的解析格式
+    //Index formats the loader understands
     public static readonly string[] Formats = [DefaultFormat, "plain", "regex"];
 
     public NcSource(string url, string index, string format, string pattern)
@@ -153,22 +152,22 @@ public sealed class NcSource
         Pattern = pattern;
     }
 
-    //Url 内核文件的下载基准地址 空表示用内置那个
+    //Download base address for kernel files, empty uses the built-in one
     public string Url { get; }
 
-    //Index 清单文件名 相对基准地址
+    //Index file name, relative to the base address
     public string Index { get; }
 
-    //Format 清单的解析格式 见 Formats
+    //Index parsing format, see Formats
     public string Format { get; }
 
-    //Pattern regex 格式用的匹配式 两个捕获组依次是哈希与相对路径
+    //Pattern for the regex format, whose two capture groups are the hash and the relative path
     public string Pattern { get; }
 }
 
-//NcTemplate 模板目录的来源
-//Url 是清单地址 Base 是示例文件的基准 两个都能带镜像前缀
-//Base 不写就用清单里写的那个
+//Source of the template directory
+//Url is the index address and Base the sample file address, both accepting a mirror prefix
+//Base defaults to whatever the index declares
 public sealed class NcTemplate
 {
     public NcTemplate(string url, string baseUrl)
@@ -177,28 +176,23 @@ public sealed class NcTemplate
         Base = baseUrl;
     }
 
-    //Url 清单地址 空表示用内置那个
+    //Index address, empty uses the built-in one
     public string Url { get; }
 
-    //Base 示例文件基准 空表示照清单里写的来
+    //Sample file base address, empty uses the one from the index
     public string Base { get; }
 }
 
-//NcStepKind 任务步骤的种类
+//Kind of a task step
 public enum NcStepKind
 {
-    //Exec 跑一条命令行
     Exec,
-
-    //Copy 把匹配到的文件复制过去
     Copy,
-
-    //Zip 把一个目录压成 zip
     Zip,
 }
 
-//NcStep 任务里的一个步骤
-//Exec 用 Command 另两种用 From 与 To 用不到的字段留空
+//A step inside a task
+//Exec uses Command while Copy and Zip use From and To, leaving the unused fields empty
 public sealed class NcStep
 {
     private NcStep(NcStepKind kind, string command, string from, string to)
@@ -209,28 +203,25 @@ public sealed class NcStep
         To = to;
     }
 
-    //Exec 一条命令行
     public static NcStep Exec(string command) => new(NcStepKind.Exec, command, string.Empty, string.Empty);
 
-    //Copy 一组文件复制到目标
     public static NcStep Copy(string from, string to) => new(NcStepKind.Copy, string.Empty, from, to);
 
-    //Zip 一个目录压成 zip
     public static NcStep Zip(string from, string to) => new(NcStepKind.Zip, string.Empty, from, to);
 
-    //Kind 步骤种类
+    //Kind of this step
     public NcStepKind Kind { get; }
 
-    //Command Exec 的命令行
+    //Command line for the Exec kind
     public string Command { get; }
 
-    //From 源 相对项目根
+    //Source, relative to the project root
     public string From { get; }
 
-    //To 目标 相对项目根
+    //Destination, relative to the project root
     public string To { get; }
 
-    //Text 展示与指纹都用它
+    //Text used for display and fingerprinting
     public string Text => Kind switch
     {
         NcStepKind.Copy => $"copy {From} -> {To}",
@@ -239,11 +230,11 @@ public sealed class NcStep
     };
 }
 
-//NcTask 项目配置里的一个任务
-//步骤按顺序跑 有前置就先把前置跑完
+//A task declared in the project config
+//Steps run in order, with dependencies completed first
 public sealed class NcTask
 {
-    //DefaultDescription 任务没写描述时帮助与列表里显示的占位文案
+    //Description shown in help and listings when a task omits one
     public const string DefaultDescription = "Project custom task";
 
     public NcTask(string name, string description, IReadOnlyList<string> depends, bool overrides,
@@ -256,34 +247,33 @@ public sealed class NcTask
         Steps = steps;
     }
 
-    //Name 任务名 命令行里直接拿它调用
+    //Task name, used to invoke it from the command line
     public string Name { get; }
 
-    //Description 配置里写的一句话说明 没写就是空的
+    //One-line description from the config, empty when omitted
     public string Description { get; }
 
-    //Depends 要先跑完的任务名
+    //Names of tasks that must finish first
     public IReadOnlyList<string> Depends { get; }
 
-    //Overrides 是否允许顶掉同名的内置工具
+    //Whether this task may override a built-in tool of the same name
     public bool Overrides { get; }
 
-    //Steps 按顺序执行的步骤
+    //Steps executed in order
     public IReadOnlyList<NcStep> Steps { get; }
 
-    //Title 展示用的说明 配置没写就退回默认文案
+    //Display description, falling back to the default text
     public string Title => string.IsNullOrWhiteSpace(Description) ? DefaultDescription : Description;
 }
 
-//NcProject 项目里的 .ncproj 通用配置
-//装的是开发期的东西 任务 运行参数 来源之类 不随模组分发
-//与 ncmod.json 分得很清 那个是 mod 数据清单 要内嵌进 dll 跟模组走
+//The .ncproj development config of a project
+//Holds development-time items such as tasks, run arguments and sources, and is never shipped with a mod
+//Distinct from ncmod.json, the mod data manifest embedded into the dll
 public sealed class NcProject
 {
-    //Extension 配置文件后缀
     public const string Extension = ".ncproj";
 
-    //SupportedVersion 当前认得的配置版本
+    //Config version this build understands
     private const string SupportedVersion = "1";
 
     private NcProject(string path, bool overrides, NcCheck check, NcBuild build,
@@ -311,59 +301,59 @@ public sealed class NcProject
         ProjectReferences = projects;
     }
 
-    //Path 配置文件的完整路径
+    //Full path of the config file
     public string Path { get; }
 
-    //Directory 配置文件所在目录 也就是项目根
+    //Directory containing the config file, which is the project root
     public string Directory { get; }
 
-    //Overrides 全局默认 任务自己没写 Override 时照它算
+    //Global default applied to tasks that do not set Override themselves
     public bool Overrides { get; }
 
-    //Check 语法检查的设置
+    //Syntax check settings
     public NcCheck Check { get; }
 
-    //Build 编译相关的设置
+    //Build settings
     public NcBuild Build { get; }
 
-    //Packages 声明的包依赖
+    //Declared package dependencies
     public IReadOnlyList<NcPackage> Packages { get; }
 
-    //Tasks 配置里定义的全部任务 含被内置挡掉的那些
+    //All tasks defined in the config, including those shadowed by built-ins
     public IReadOnlyList<NcTask> Tasks { get; }
 
-    //Server 开发期服务端的设置
+    //Development-time server settings
     public NcServer Server { get; }
 
-    //Client 开发期客户端的设置
+    //Development-time client settings
     public NcClient Client { get; }
 
-    //Sources 内核来源 没配就是 null 用内置那个
+    //Kernel source, null uses the built-in one
     public NcSource? Sources { get; }
 
-    //Template 模板目录来源 没配就是 null 用内置那个
+    //Template directory source, null uses the built-in one
     public NcTemplate? Template { get; }
 
-    //InternalsVisibleTo 允许访问内部成员的程序集名
+    //Assemblies allowed to access internal members
     public IReadOnlyList<string> InternalsVisibleTo { get; }
 
-    //DeployTargets 构建后产物要复制过去的目录 相对项目根或绝对路径
+    //Directories the build output is copied to, relative to the project root or absolute
     public IReadOnlyList<string> DeployTargets { get; }
 
-    //AvaloniaResources 要打进 !AvaloniaResources 的资源模式 相对项目根
+    //Patterns packed into !AvaloniaResources, relative to the project root
     public IReadOnlyList<string> AvaloniaResources { get; }
 
-    //EmbeddedResources 要打进产物程序集的普通资源
+    //Plain resources embedded into the output assembly
     public IReadOnlyList<NcResource> EmbeddedResources { get; }
 
-    //FileReferences 直接当编译引用的 dll 模式 相对项目根 支持通配
+    //dll patterns referenced directly at compile time, relative to the project root and supporting wildcards
     public IReadOnlyList<string> FileReferences { get; }
 
-    //ProjectReferences 要引用其产物的其他工程 相对项目根 可指目录也可指工程文件
+    //Other projects whose output is referenced, relative to the project root and either a directory or a project file
     public IReadOnlyList<string> ProjectReferences { get; }
 
-    //TryFind 从指定目录起逐级向上找配置文件 找不到返回 null
-    //error 非空表示找到了但读不动 与压根没有是两回事
+    //Search upward from the given directory for a project config, returning null when none is found
+    //A non-empty error means one was found but could not be read, which is different from having none
     public static NcProject? TryFind(string directory, out string error)
     {
         error = string.Empty;
@@ -381,7 +371,7 @@ public sealed class NcProject
         return null;
     }
 
-    //FindIn 在目录里找一个配置文件 同名多个时优先与目录同名的那个
+    //Find a config in the directory, preferring the one matching the directory name when several exist
     private static string? FindIn(string directory)
     {
         var files = System.IO.Directory.EnumerateFiles(directory, "*" + Extension).ToList();
@@ -396,8 +386,8 @@ public sealed class NcProject
             ?? files[0];
     }
 
-    //AddPackage 往配置里加一条包依赖 同名的已经有了就换版本 返回是否成功
-    //只碰 <Packages> 那一块 其余节点原样保留
+    //Add a package dependency, replacing the version when the id already exists, and return whether it succeeded
+    //Only the <Packages> element is touched, leaving every other node unchanged
     public bool AddPackage(string id, string version, out string error)
     {
         error = string.Empty;
@@ -436,7 +426,7 @@ public sealed class NcProject
                 package.SetAttributeValue("Version", version);
             packages.Add(package);
         }
-        //没给版本就是不动已有的那个 与配置里别处留空不碰的规矩一致
+        //A missing version leaves the existing entry untouched, matching the rule that a blank field never changes anything
         else if (!string.IsNullOrWhiteSpace(version))
         {
             existing.SetAttributeValue("Version", version);
@@ -455,8 +445,8 @@ public sealed class NcProject
         return true;
     }
 
-    //AddReference 往配置里加一条引用 同类同路径的已经有了就不重复加 返回是否成功
-    //isProject 为真写进 <Project> 否则写进 <File>
+    //Add a reference, skipping an existing one with the same kind and path, and return whether it succeeded
+    //isProject writes into <Project> and otherwise into <File>
     public bool AddReference(string include, bool isProject, out string error)
     {
         error = string.Empty;
@@ -506,8 +496,8 @@ public sealed class NcProject
         return true;
     }
 
-    //ToRelative 路径折成相对项目根的写法
-    //带通配符的不做绝对化 那串东西本来就不是一个能解析出来的路径
+    //Convert a path to be relative to the project root
+    //Wildcards are left as is because they are not a resolvable path in the first place
     private string ToRelative(string include)
     {
         var normalized = include.Trim().Replace('\\', '/');
@@ -518,30 +508,30 @@ public sealed class NcProject
         return System.IO.Path.GetRelativePath(Directory, absolute);
     }
 
-    //FindTask 按名字精确找一个能用的任务 大小写敏感 没有返回 null
-    //被内置工具挡掉的任务不在这里 调用方拿不到也就执行不了
+    //Find a runnable task by name, case sensitively, returning null when there is none
+    //Tasks shadowed by a built-in tool are excluded so callers cannot reach them
     public NcTask? FindTask(string name)
         => Tasks.FirstOrDefault(task => !IsShadowed(task)
             && string.Equals(task.Name, name, StringComparison.Ordinal));
 
-    //Runnable 归属本项目的可用任务 被内置挡掉的除外
+    //Tasks defined by this project that can run, excluding those shadowed by built-ins
     public IReadOnlyList<NcTask> Runnable()
         => Tasks.Where(task => !IsShadowed(task)).ToList();
 
-    //Shadowed 名字撞上内置工具因而被忽略的任务
+    //Tasks ignored because their name collides with a built-in tool
     public IReadOnlyList<NcTask> Shadowed()
         => Tasks.Where(IsShadowed).ToList();
 
-    //IsShadowed 这个任务是否被同名的内置工具挡掉
-    //没开 Override 时忽略 开了就让它顶掉内置
+    //Whether this task is shadowed by a built-in tool of the same name
+    //Without Override it is ignored, with Override it replaces the built-in
     public bool IsShadowed(NcTask task)
         => !task.Overrides && HasBuiltIn(task.Name);
 
-    //HasBuiltIn 内置工具里有没有这个名字 大小写敏感
+    //Whether a built-in tool has this name, compared case sensitively
     private static bool HasBuiltIn(string name)
         => ToolRegistry.All.Any(entry => string.Equals(entry.Name, name, StringComparison.Ordinal));
 
-    //Load 读一份配置 读不动时把原因写进 error
+    //Read a config, writing the reason into error when it cannot be loaded
     private static NcProject? Load(string path, out string error)
     {
         error = string.Empty;
@@ -621,8 +611,8 @@ public sealed class NcProject
             template, friends, deploy, resources, embedded, files, projects);
     }
 
-    //ReadEmbeddedResources 读 <EmbeddedResources> 下每条要内嵌的资源
-    //LogicalName 可省 省了按根命名空间加相对路径算资源名
+    //Read each embedded resource under <EmbeddedResources>
+    //LogicalName is optional and defaults to the root namespace plus the relative path
     private static void ReadEmbeddedResources(XElement parent, string path, List<NcResource> resources)
     {
         foreach (var element in parent.Elements())
@@ -644,8 +634,8 @@ public sealed class NcProject
         }
     }
 
-    //ReadReferences 读 <References> 下两类引用
-    //File 是直接给的 dll 或模式 Project 是另一个工程 两种都相对项目根
+    //Read the two kinds of reference under <References>
+    //File is a dll or pattern and Project another project, both relative to the project root
     private static void ReadReferences(XElement parent, string path, List<string> files, List<string> projects)
     {
         foreach (var element in parent.Elements())
@@ -666,12 +656,12 @@ public sealed class NcProject
         }
     }
 
-    //ReadFriends 读 <InternalsVisibleTo> 下每个要开放内部成员的程序集
+    //Read each assembly granted internal access under <InternalsVisibleTo>
     private static void ReadFriends(XElement parent, string path, List<string> friends)
     {
         foreach (var element in parent.Elements())
         {
-            //Name 是这边习惯的写法 Include 是照 csproj 搬过来的 两种都认
+            //Both Name, the convention here, and Include, carried over from csproj, are accepted
             var name = (string?)element.Attribute("Name") ?? (string?)element.Attribute("Include") ?? string.Empty;
             if (string.IsNullOrWhiteSpace(name))
             {
@@ -683,7 +673,7 @@ public sealed class NcProject
         }
     }
 
-    //ReadResources 读 <AvaloniaResources> 下每个要打进资源包的模式
+    //Read each pattern packed into the resource bundle under <AvaloniaResources>
     private static void ReadResources(XElement parent, string path, List<string> resources)
     {
         foreach (var element in parent.Elements())
@@ -699,21 +689,21 @@ public sealed class NcProject
         }
     }
 
-    //ReadServer 读 <Server> 下的开发期服务端设置
+    //Read the development-time server settings under <Server>
     private static NcServer ReadServer(XElement element, string path)
         => new(
             (string?)element.Attribute("Cache") ?? string.Empty,
             (string?)element.Attribute("Args") ?? string.Empty,
             ReadBool(element, "Debug", false, path));
 
-    //ReadClient 读 <Client> 下的开发期客户端设置
+    //Read the development-time client settings under <Client>
     private static NcClient ReadClient(XElement element)
         => new(
             (string?)element.Attribute("Args") ?? string.Empty,
             (string?)element.Attribute("Version") ?? string.Empty,
             (string?)element.Attribute("Jar") ?? string.Empty);
 
-    //ReadSources 读 <Sources> 内核来源 地址没写就当没配 用它不如用内置那个
+    //Read the kernel source under <Sources>, treating a missing address as unconfigured since the built-in source is better
     private static NcSource? ReadSources(XElement element, string path)
     {
         var url = (string?)element.Attribute("Url") ?? string.Empty;
@@ -734,7 +724,7 @@ public sealed class NcProject
         return new NcSource(url, (string?)element.Attribute("Index") ?? string.Empty, format, pattern);
     }
 
-    //ReadTemplate 读 <Template> 模板目录来源 两项都没写就当没配 用它不如用内置那个
+    //Read the template source under <Template>, treating both fields being absent as unconfigured since the built-in source is better
     private static NcTemplate? ReadTemplate(XElement element, string path)
     {
         var url = (string?)element.Attribute("Url") ?? string.Empty;
@@ -748,11 +738,11 @@ public sealed class NcProject
         return new NcTemplate(url, baseUrl);
     }
 
-    //ReadCheck 读 <Check> 下的检查设置
+    //Read the check settings under <Check>
     private static NcCheck ReadCheck(XElement element)
         => new((string?)element.Attribute("LangVersion"));
 
-    //ReadBuild 读 <Build> 下的编译设置
+    //Read the build settings under <Build>
     private static NcBuild ReadBuild(XElement element, string path)
     {
         var outputType = (string?)element.Attribute("OutputType") ?? string.Empty;
@@ -771,7 +761,7 @@ public sealed class NcProject
             (string?)element.Attribute("RootNamespace") ?? string.Empty);
     }
 
-    //ReadPackages 读 <Packages> 下每一条包依赖
+    //Read each package dependency under <Packages>
     private static void ReadPackages(XElement parent, string path, List<NcPackage> packages)
     {
         foreach (var element in parent.Elements())
@@ -793,11 +783,11 @@ public sealed class NcProject
         }
     }
 
-    //Folded 两个元素名是否只是大小写不同
+    //Whether two element names differ only in case
     private static bool Folded(string left, string right)
         => string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
 
-    //ReadTasks 读 <Tasks> 下的每一个 <Task>
+    //Read each <Task> under <Tasks>
     private static void ReadTasks(XElement parent, bool globalOverride, string path, List<NcTask> tasks)
     {
         foreach (var element in parent.Elements())
@@ -828,8 +818,8 @@ public sealed class NcProject
         }
     }
 
-    //ReadSteps 读一个任务里的步骤
-    //Exec 取元素文本 Copy 与 Zip 各取 From 与 To 别的类型还没做 见到只提醒一句
+    //Read the steps of a task
+    //Exec takes the element text while Copy and Zip take From and To, and unsupported kinds only produce a warning
     private static List<NcStep> ReadSteps(XElement task, string name, string path)
     {
         var steps = new List<NcStep>();
@@ -867,14 +857,14 @@ public sealed class NcProject
         return steps;
     }
 
-    //Split 拆分隔符隔开的属性值 空白与空项都丢掉
-    //Depends 用逗号 路径列表用分号
+    //Split a separator-delimited attribute value, dropping whitespace and empty entries
+    //Depends uses commas while path lists use semicolons
     private static List<string> Split(string? value, char separator = ',')
         => string.IsNullOrWhiteSpace(value)
             ? []
             : value.Split(separator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
 
-    //ReadBool 读一个真假属性 写得不认识就用兜底值并提醒
+    //Read a boolean attribute, warning and using the fallback when the value is unrecognized
     private static bool ReadBool(XElement element, string name, bool fallback, string path)
     {
         var raw = (string?)element.Attribute(name);
@@ -888,7 +878,7 @@ public sealed class NcProject
         return fallback;
     }
 
-    //Warn 配置里能容忍的问题都走这里 黄色一行 不打断流程
+    //Tolerable config problems are reported here in yellow without aborting
     private static void Warn(string message)
     {
         var previous = Console.ForegroundColor;

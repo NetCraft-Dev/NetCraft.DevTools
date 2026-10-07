@@ -1,17 +1,16 @@
 namespace NetCraft.ModBuild.Diagnostics;
 
-//DiagnosticSeverity 一条诊断的轻重
+//DiagnosticSeverity the weight of a diagnostic
 public enum DiagnosticSeverity
 {
-    //Warning 提示但放行
+    //warns but lets the build pass
     Warning,
-    //Error 拦住构建
+    //blocks the build
     Error,
 }
 
-//Diagnostic 一条诊断
-//File Line Column 都用来定位 渲染时按 cargo 那样画出行号与指示箭头
-//Link 是这条错误的官方文档地址 只在一条建议都给不出时才拿出来
+//Diagnostic one diagnostic; file, line and column locate it for cargo-style line numbers and a caret
+//Link is the official documentation url, shown only when no fix can be offered
 public sealed record Diagnostic(
     DiagnosticSeverity Severity,
     string Code,
@@ -25,23 +24,20 @@ public sealed record Diagnostic(
     string Link,
     IReadOnlyList<Suggestion> Fixes);
 
-//DiagnosticBag 一次检查收集到的全部诊断
+//DiagnosticBag every diagnostic collected in one check
 public sealed class DiagnosticBag
 {
     private readonly List<Diagnostic> _items = new();
     private readonly HashSet<string> _seen = new(StringComparer.Ordinal);
 
-    //ErrorCount 错误数
     public int ErrorCount => _items.Count(item => item.Severity == DiagnosticSeverity.Error);
 
-    //WarningCount 警告数
     public int WarningCount => _items.Count(item => item.Severity == DiagnosticSeverity.Warning);
 
-    //HasErrors 有没有拦构建的错误
     public bool HasErrors => ErrorCount > 0;
 
-    //Add 收一条诊断 同一处同一条只留一份
-    //解析器偶尔对同一位置连报两回 一模一样的两段并排很吵
+    //Add records a diagnostic, keeping only one copy per identical location and code
+    //parsers occasionally report the same spot twice, and two identical blocks side by side are noise
     public void Add(Diagnostic diagnostic)
     {
         var key = $"{diagnostic.File}:{diagnostic.Line}:{diagnostic.Column}:{diagnostic.Code}:{diagnostic.Message}";
@@ -51,7 +47,7 @@ public sealed class DiagnosticBag
         _items.Add(diagnostic);
     }
 
-    //Sorted 按文件与位置排好 同一批源码每次输出的顺序都一致
+    //Sorted orders by file and position so repeated runs over the same sources emit a stable sequence
     public IEnumerable<Diagnostic> Sorted()
         => _items
             .OrderBy(item => item.File, StringComparer.Ordinal)

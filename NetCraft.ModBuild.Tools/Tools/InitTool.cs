@@ -5,14 +5,13 @@ using NetCraft.ModBuild.Core;
 
 namespace NetCraft.ModBuild.Tools;
 
-//InitTool 从项目模板建一个新的模组 收尾时顺手把图标也生成好
+//InitTool creates a new mod from the project template and generates the icon along the way
 internal static class InitTool
 {
-    //TemplateShortName dotnet new 用的模板短名
     private const string TemplateShortName = "ncm";
 
-    //Register 把本工具登记进注册表 名字说明与参数都写在这一行
-    //位置参数顺序与表单一致 一个都不给就走交互问答
+    //Register this tool with its name, description and parameters
+    //The positional arguments follow the form order, and no arguments at all starts the interactive prompt
     public static void Register()
         => ToolRegistry.Register("init", "Create a new NetCraft mod project in a subdirectory", Run,
         [
@@ -25,8 +24,8 @@ internal static class InitTool
             new("[license]", "License name"),
         ]);
 
-    //Run 收集内容再落地
-    //不带参数走表单问答 带参数就按位置直接取值 顺序与表单一致 一个都不问
+    //Run collects the content and materializes it
+    //No arguments starts the form, arguments are taken positionally in the same order without asking
     private static int Run(string[] args)
     {
         var directory = Environment.CurrentDirectory;
@@ -40,7 +39,7 @@ internal static class InitTool
                 return 1;
             }
 
-            //这条路是给脚本用的 没人看得到确认提示 已经身在项目里就直接失败 免得误伤
+            //This path is for scripts where nobody sees a confirmation, so an existing project fails outright to avoid damage
             if (HasExistingProject(directory))
             {
                 Console.WriteLine($"This directory already contains a csproj or {ModProject.ManifestName} file");
@@ -67,11 +66,11 @@ internal static class InitTool
         return Submit(directory, fields);
     }
 
-    //BuildFields 表单字段 顺序就是位置参数的顺序 改一处两边同时生效
+    //BuildFields the form fields in positional argument order, changing one place keeps both in sync
     private static List<FormField> BuildFields(string directory) => new()
     {
-        //只有名字必填 其余都能留空或由模板与缺省约定兜底
-        //名字每敲一键就判一回 同名目录已经在了是红 夹了不能进目录名的字符是黄
+        //Only the name is required, the rest may stay empty and fall back to the template or defaults
+        //The name is validated on every keystroke, an existing directory is an error and invalid characters a warning
         new("name", "Mod name", required: true)
         {
             Validate = value => ValidateName(directory, value),
@@ -84,7 +83,7 @@ internal static class InitTool
         new("license", "License"),
     };
 
-    //Submit 两条入口共用的收尾 名字与目录先验一遍再落地
+    //Submit the shared tail of both entry points, validating the name and directory before materializing
     private static int Submit(string directory, List<FormField> fields)
     {
         string Value(string key) => fields.First(field => field.Key == key).Value.Trim();
@@ -102,7 +101,7 @@ internal static class InitTool
             return 1;
         }
 
-        //交互那条路靠表单标红拦着 带参数这条路没人看着 就把关搬到这里
+        //The interactive path is guarded by form highlighting, this argument path has no watcher so the check moves here
         if (Directory.Exists(Path.Combine(directory, name)))
         {
             Console.WriteLine($"A directory named {name} already exists");
@@ -122,8 +121,8 @@ internal static class InitTool
         return Execute(directory, answers);
     }
 
-    //Execute 建项目 补清单字段 删掉模板图标再造一张
-    //与收集分开是为了让这条链路能脱离交互单独跑
+    //Execute creates the project, fills in the manifest fields, deletes the template icon and draws a new one
+    //Separated from collection so this chain can run without interaction
     private static int Execute(string directory, Answers answers)
     {
         if (!RunTemplate(directory, answers.Name))
@@ -145,10 +144,10 @@ internal static class InitTool
 
         ApplyAnswers(project, answers);
 
-        //清单刚改过 展示名要重读一次 图标文本取的正是它
+        //The manifest just changed so the display name is re-read, the icon text uses it
         var refreshed = ModProject.TryFind(target) ?? project;
 
-        //模板里那张是占位图 删掉换成按模组名生成的
+        //The template icon is a placeholder, replaced by one generated from the mod name
         if (File.Exists(refreshed.IconPath))
             File.Delete(refreshed.IconPath);
         IconTool.Generate(refreshed);
@@ -157,7 +156,7 @@ internal static class InitTool
         return 0;
     }
 
-    //RunTemplate 调 dotnet new 建项目 失败时把 dotnet 自己的输出带出来
+    //RunTemplate runs dotnet new and surfaces dotnet's own output on failure
     private static bool RunTemplate(string directory, string name)
     {
         var startInfo = new ProcessStartInfo("dotnet")
@@ -166,7 +165,7 @@ internal static class InitTool
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
-        //ncm 的输出统一走英文 子进程别跟着系统语言变
+        //ncm output is English only, keep the child process from following the system language
         startInfo.Environment["DOTNET_CLI_UI_LANGUAGE"] = "en";
         startInfo.ArgumentList.Add("new");
         startInfo.ArgumentList.Add(TemplateShortName);
@@ -196,7 +195,7 @@ internal static class InitTool
         return false;
     }
 
-    //PrintTemplateError 失败统一给这一条 绝大多数情况就是模板没装
+    //PrintTemplateError the one message for any failure, almost always a missing template
     private static void PrintTemplateError()
     {
         Console.ForegroundColor = ConsoleColor.Red;
@@ -204,22 +203,22 @@ internal static class InitTool
         Console.ResetColor();
     }
 
-    //HasExistingProject 当前目录里已经有工程文件或模组清单
+    //HasExistingProject whether the directory already holds a project file or a mod manifest
     private static bool HasExistingProject(string directory)
         => Directory.EnumerateFiles(directory, "*.csproj").Any()
             || File.Exists(Path.Combine(directory, ModProject.ManifestName));
 
-    //BadNameChars 不能进目录名的字符 两个引号也算上 从别处粘名字常带着成对引号
+    //BadNameChars characters not allowed in a directory name, including both quotes since pasted names often carry them
     private static readonly char[] BadNameChars = BuildBadNameChars();
 
-    //BuildBadNameChars 平台给的非法字符再加两个引号
+    //BuildBadNameChars the platform's invalid characters plus the two quotes
     private static char[] BuildBadNameChars()
     {
         var chars = new List<char>(Path.GetInvalidFileNameChars()) { '\'', '"' };
         return chars.ToArray();
     }
 
-    //ValidateName 名字实时校验 同名目录已经在了是红 夹了特殊字符是黄 空着不表态
+    //ValidateName live validation of the name, an existing directory is an error, special characters a warning and empty is neutral
     private static FieldState ValidateName(string directory, string value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -229,7 +228,7 @@ internal static class InitTool
         return value.IndexOfAny(BadNameChars) >= 0 ? FieldState.Warn : FieldState.Normal;
     }
 
-    //DeriveId 名字派生标识 与模板自己的 lowerCase 规则对齐 额外把空格与符号折成连字符
+    //DeriveId derives the id from the name, aligned with the template's lowerCase rule and folding spaces and symbols into hyphens
     private static string DeriveId(string name)
     {
         var builder = new StringBuilder();
@@ -243,12 +242,12 @@ internal static class InitTool
         return builder.ToString().Trim('-');
     }
 
-    //ApplyAnswers 把填过的字段写进清单 留空的一律不碰 模板给的默认值保持不动
+    //ApplyAnswers writes the filled fields into the manifest and leaves empty ones, keeping the template defaults
     private static void ApplyAnswers(ModProject project, Answers answers)
         => project.Edit(manifest =>
         {
             var changed = false;
-            //name 由模板按 -n 替换 但旧版模板没有这个字段 补一次保证图标文本用的是展示名
+            //The template already sets name from -n, but older templates lack the field, so set it to make the icon text use the display name
             changed |= SetString(manifest, "name", answers.Name);
             changed |= SetString(manifest, "id", answers.Id);
             changed |= SetString(manifest, "description", answers.Description);
@@ -259,7 +258,7 @@ internal static class InitTool
             return changed;
         });
 
-    //SetString 有新值才覆盖
+    //SetString overwrites only when there is a new value
     private static bool SetString(JsonObject manifest, string key, string value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -268,7 +267,7 @@ internal static class InitTool
         return true;
     }
 
-    //SetAuthors 逗号分隔拆成数组
+    //SetAuthors splits a comma separated list into an array
     private static bool SetAuthors(JsonObject manifest, string value)
     {
         var names = value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -282,7 +281,7 @@ internal static class InitTool
         return true;
     }
 
-    //SetContact 联系信息是嵌套对象 缺了就先建
+    //SetContact the contact info is a nested object, created when missing
     private static bool SetContact(JsonObject manifest, string key, string value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -298,7 +297,7 @@ internal static class InitTool
         return true;
     }
 
-    //Answers 表单收集到的内容
+    //Answers what the form collected
     private sealed record Answers(
         string Name,
         string Id,

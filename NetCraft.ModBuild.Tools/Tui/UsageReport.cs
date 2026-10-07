@@ -4,8 +4,8 @@ using Spectre.Console;
 
 namespace NetCraft.ModBuild.Tui;
 
-//UsageReport 一次扫描的结果 概览 问题表 详情都照它渲染
-//tui 与重定向时的一次性报告共用同一份渲染 两边看到的东西才一致
+//The result of one scan, rendered into the summary, problem table and detail views
+//Shared by the interactive tui and the one-shot redirected report so both show the same thing
 internal sealed class UsageReport
 {
     private UsageReport(string root, List<ApiUsageItem> items, int fileCount)
@@ -16,16 +16,15 @@ internal sealed class UsageReport
         Problems = items.Where(item => item.State != UsageState.Ok).ToList();
     }
 
-    //Root 扫的是哪个目录
+    //Directory that was scanned
     public string Root { get; }
 
-    //Items 全部用法 有问题的排在前面
+    //All usages, problems first
     public IReadOnlyList<ApiUsageItem> Items { get; }
 
-    //Problems 需要处理的那些 即不是 Ok 的
+    //Usages that need attention, i.e. not Ok
     public IReadOnlyList<ApiUsageItem> Problems { get; }
 
-    //FileCount 扫到的源码文件数
     public int FileCount { get; }
 
     public int ErrorCount => Items.Count(item => item.State == UsageState.Missing);
@@ -34,7 +33,7 @@ internal sealed class UsageReport
 
     public int OkCount => Items.Count(item => item.State == UsageState.Ok);
 
-    //Scan 扫目录 有问题的排前面 同组按符号名排
+    //Scans a directory, ordering problems first and then by symbol name
     public static UsageReport Scan(string root, TemplateCatalog catalog)
     {
         var items = ApiUsage.Scan(root, catalog).Items
@@ -45,7 +44,6 @@ internal sealed class UsageReport
         return new UsageReport(root, items, SourceFiles.Enumerate(root).Count());
     }
 
-    //RenderSummary 概览 一行统计
     public void RenderSummary(string title)
     {
         AnsiConsole.Write(new Rule($"[bold]{Markup.Escape(title)}[/]").LeftJustified());
@@ -57,7 +55,7 @@ internal sealed class UsageReport
         AnsiConsole.WriteLine();
     }
 
-    //RenderTable 问题清单 干净的项目只打一行
+    //Prints a single line when there is nothing to report
     public void RenderTable()
     {
         if (Problems.Count == 0)
@@ -90,7 +88,7 @@ internal sealed class UsageReport
         AnsiConsole.WriteLine();
     }
 
-    //RenderDetail 单条用法的详情 源码行与候选都给全
+    //Shows one usage in full, with every source line and candidate
     public void RenderDetail(ApiUsageItem item)
     {
         var lines = new List<string>
@@ -107,7 +105,7 @@ internal sealed class UsageReport
             lines.Add("[grey]where[/]");
             foreach (var location in item.Locations)
             {
-                //源码行按原样贴出来 缩进也留着 位置对不对一眼能看出来
+                //Paste the source line as-is and keep the indentation, so the location can be checked at a glance
                 lines.Add($"  [blue]{Markup.Escape(location.File)}:{location.Line}[/]");
                 lines.Add($"    [grey]{Markup.Escape(location.Text.TrimEnd())}[/]");
             }
@@ -128,7 +126,7 @@ internal sealed class UsageReport
         AnsiConsole.WriteLine();
     }
 
-    //Color 级别对应的颜色 判断逻辑与诊断那边一致
+    //Colors match the diagnostics output
     private static string Color(UsageState state) => state switch
     {
         UsageState.Missing => "red",
@@ -136,7 +134,7 @@ internal sealed class UsageReport
         _ => "green",
     };
 
-    //Label 级别在终端里的叫法 与诊断的 error/warning 对齐
+    //Labels line up with the diagnostics error/warning wording
     private static string Label(UsageState state) => state switch
     {
         UsageState.Missing => "error",
@@ -144,7 +142,7 @@ internal sealed class UsageReport
         _ => "ok",
     };
 
-    //Where 第一个出现位置 还有别处时补一个计数
+    //First location, with a count appended when there are more
     private static string Where(ApiUsageItem item)
     {
         if (item.Locations.Count == 0)
@@ -155,7 +153,7 @@ internal sealed class UsageReport
         return item.Locations.Count > 1 ? $"{text} (+{item.Locations.Count - 1})" : text;
     }
 
-    //Hints 表格里只放前几个候选 全量留给详情页
+    //The table keeps only the first few candidates, the detail view has the rest
     private static string Hints(ApiUsageItem item)
         => item.Candidates.Count == 0
             ? "[grey]-[/]"

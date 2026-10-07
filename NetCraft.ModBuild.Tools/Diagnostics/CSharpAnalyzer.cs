@@ -5,26 +5,25 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 using NetCraft.ModBuild.Compile;
 using NetCraft.ModBuild.Core;
-//Roslyn 的 Diagnostic 与本地同命名空间那个重名 起个别名区分
+//Roslyn's Diagnostic collides with the local one in this namespace, so alias it
 using RoslynDiagnostic = Microsoft.CodeAnalysis.Diagnostic;
 
 namespace NetCraft.ModBuild.Diagnostics;
 
-//CSharpAnalyzer 用 Roslyn 把项目源码整编一遍
-//语法与语义错误都在这一层出 装配那一步交给 CompilationFactory 与真正的构建共用一套
+//CSharpAnalyzer compiles the project sources through Roslyn
+//syntax and semantic errors surface here, and assembly is left to CompilationFactory so the check shares the real build's setup
 public static class CSharpAnalyzer
 {
-    //XamlName 界面文件里给控件起的名字 形如 x:Name="ModList"
+    //XamlName matches control names declared in UI files, as in x:Name="ModList"
     private static readonly Regex XamlName = new(
         @"(?:x:)?Name\s*=\s*""([A-Za-z_][A-Za-z0-9_]*)""",
         RegexOptions.Compiled);
 
-    //Analyze 解析并编译项目源码 把错误收进 bag
-    //covered 是清单那侧已经报过的标识符 命中的不再重复报
+    //Analyze compiles the project sources and collects errors into bag, skipping identifiers the catalog pass already reported
     public static void Analyze(string root, DiagnosticBag bag, IReadOnlySet<string> covered)
         => Analyze(root, CompileOptions.Default, bag, covered);
 
-    //Analyze 同上 编译设置由调用方给 好让检查与真正的构建用同一套
+    //Analyze overload taking caller-supplied compile options so the check matches the real build
     public static void Analyze(string root, CompileOptions options, DiagnosticBag bag, IReadOnlySet<string> covered)
     {
         var project = CompilationFactory.Create(root, options, out var failure);
@@ -35,19 +34,19 @@ public static class CSharpAnalyzer
         }
 
         var sourcePaths = new HashSet<string>(project.Sources, StringComparer.Ordinal);
-        //界面文件里的命名控件与初始化方法是编译期补出来的 磁盘上没有对应源码
+        //UI files declare named controls and an initialization method that the compiler synthesizes, so they have no source on disk
         var declared = XamlMembers(root);
         var cache = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
         var reported = 0;
 
         foreach (var diagnostic in project.Compilation.GetDiagnostics())
         {
-            //只看错误 警告交给真正的构建去刷 免得一屏都是建议
+            //only errors are reported; warnings belong to the real build, which would otherwise flood the screen with suggestions
             if (diagnostic.Severity != Microsoft.CodeAnalysis.DiagnosticSeverity.Error)
                 continue;
 
             var span = diagnostic.Location.GetLineSpan();
-            //生成器产出的树不是项目源码 它自己报的错不往外抛
+            //trees from a generator are not project sources, so errors they report are dropped
             if (string.IsNullOrEmpty(span.Path)
                 || span.Path == ProjectCompilation.GeneratedPath
                 || !sourcePaths.Contains(span.Path))
@@ -56,13 +55,13 @@ public static class CSharpAnalyzer
             var line = span.StartLinePosition.Line + 1;
             var sourceLine = LineOf(cache, span.Path, line);
 
-            //同一个名字清单那侧已经报过一次了 这里再报一遍只是噪音
-            //界面文件里点名过的名字同样放过 它们本来就由界面编译器补
+            //a name the catalog pass already reported would only be noise here
+            //names declared in UI files are skipped too since the UI compiler supplies them
             var identifier = IdentifierAt(sourceLine, span.StartLinePosition.Character);
             if (identifier is not null && (covered.Contains(identifier) || declared.Contains(identifier)))
                 continue;
 
-            //先试能直接照着改的建议 命中了就不再堆通用话术
+            //try a concrete fix first; when it applies, skip the generic advice
             var suggestion = SuggestFor(project.Compilation, diagnostic);
             var fixes = suggestion is not null
                 ? new List<Suggestion> { suggestion }
@@ -87,8 +86,8 @@ public static class CSharpAnalyzer
         Trace.Log($"Roslyn reported {reported} error(s)");
     }
 
-    //SuggestFor 给一条编译错误算一条能照着改的建议 算不出返回 null
-    //只处理名字写错这两类 其余交给 CompileAdvice 的静态表兜底
+    //SuggestFor derives one actionable fix for a compile error, or null when it cannot
+    //only the two misspelled-name cases are handled; the rest fall back to the static table in CompileAdvice
     private static Suggestion? SuggestFor(Compilation compilation, RoslynDiagnostic diagnostic)
     {
         var tree = diagnostic.Location.SourceTree;
@@ -106,7 +105,7 @@ public static class CSharpAnalyzer
         };
     }
 
-    //SuggestName 名字找不到时在该处可见的符号里挑最像的那个
+    //SuggestName picks the closest symbol visible at that point when a name is not found
     private static Suggestion? SuggestName(SemanticModel model, RoslynDiagnostic diagnostic, TextSpan span)
     {
         var written = TextOf(diagnostic, span);
@@ -128,7 +127,7 @@ public static class CSharpAnalyzer
             Applicability.MaybeIncorrect);
     }
 
-    //SuggestMember 成员名对不上时从那个类型实际有的成员里挑最像的那个
+    //SuggestMember picks the closest real member of the type when a member name does not match
     private static Suggestion? SuggestMember(SemanticModel model, RoslynDiagnostic diagnostic, TextSpan span)
     {
         var root = diagnostic.Location.SourceTree?.GetRoot();
@@ -156,7 +155,7 @@ public static class CSharpAnalyzer
             Applicability.MaybeIncorrect);
     }
 
-    //MemberNames 一个类型连基类算上全部成员的名字
+    //MemberNames yields the member names of a type including its base types
     private static IEnumerable<string> MemberNames(ITypeSymbol type)
     {
         for (var current = type; current is not null; current = current.BaseType)
@@ -166,12 +165,12 @@ public static class CSharpAnalyzer
         }
     }
 
-    //TextOf 取诊断指向的那段源码原文
+    //TextOf reads the source text a diagnostic points at
     private static string TextOf(RoslynDiagnostic diagnostic, TextSpan span)
         => diagnostic.Location.SourceTree?.GetText().ToString(span) ?? string.Empty;
 
-    //XamlMembers 界面文件里点名出来的成员
-    //界面编译器按 x:Name 生成同名字段 顺带补一个 InitializeComponent 这些都不落盘
+    //XamlMembers collects the names declared in UI files
+    //the UI compiler generates a field per x:Name plus an InitializeComponent, none of which reach disk
     private static HashSet<string> XamlMembers(string root)
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
@@ -192,13 +191,13 @@ public static class CSharpAnalyzer
                 names.Add(match.Groups[1].Value);
         }
 
-        //有界面文件才可能用到那个初始化方法 一个都没有就别往名单里塞
+        //only a project with UI files can call that initialization method, so add it only when such files exist
         if (names.Count > 0)
             names.Add("InitializeComponent");
         return names;
     }
 
-    //LineOf 取文件里第 line 行的原文 按文件缓存整份内容
+    //LineOf returns the text of a line, caching the whole file per path
     private static string LineOf(Dictionary<string, string[]> cache, string path, int line)
     {
         if (!cache.TryGetValue(path, out var lines))
@@ -218,8 +217,8 @@ public static class CSharpAnalyzer
         return index >= 0 && index < lines.Length ? lines[index] : string.Empty;
     }
 
-    //IdentifierAt 取某列所在的标识符 列号从 0 起
-    //Roslyn 有时指向标识符中间 所以先退到词首再整词取出来
+    //IdentifierAt returns the identifier containing a 0-based column
+    //Roslyn sometimes points mid-identifier, so back up to the word start and take the whole word
     private static string? IdentifierAt(string line, int column)
     {
         if (string.IsNullOrEmpty(line) || column < 0 || column >= line.Length)

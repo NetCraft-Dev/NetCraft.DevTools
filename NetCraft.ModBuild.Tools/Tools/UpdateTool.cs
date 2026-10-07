@@ -2,31 +2,29 @@ using System.Diagnostics;
 using System.Reflection;
 using System.Text.Json;
 using NetCraft.ModBuild.Core;
-//Trace 与 System.Diagnostics.Trace 重名 这里指名道姓挑项目自己那个
+//Trace clashes with System.Diagnostics.Trace, so name the project's own explicitly
 using Trace = NetCraft.ModBuild.Core.Trace;
 
 namespace NetCraft.ModBuild.Tools;
 
-//UpdateTool 问一次 nuget 有没有新版本 有就先下包再放个脚本把 ncm 更新掉
-//脚本落在用户目录的更新缓存里 用下载好的那一份当源 到点自己装
-//直接覆盖正在运行的程序集在 Windows 上会失败 所以脚本头一行先等一秒
-//ncm 不等脚本 放完就退出 把文件让出来给安装
+//UpdateTool checks nuget for a newer version, downloads the package and drops a script that updates ncm
+//The script lives in the update cache under the user directory and installs from the downloaded package
+//Overwriting a running assembly fails on Windows, so the script waits a second before starting
+//ncm itself does not wait for the script, it exits so the files are free to install
 internal static class UpdateTool
 {
-    //PackageId nuget 上的包名
     private const string PackageId = "NetCraft.ModBuild.Tools";
 
-    //VersionIndex 扁平容器接口给出的版本清单
+    //VersionIndex is the version list from the flat container endpoint
     private static readonly string VersionIndex =
         $"https://api.nuget.org/v3-flatcontainer/{PackageId.ToLowerInvariant()}/index.json";
 
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(30) };
 
-    //Register 把本工具登记进注册表
     public static void Register()
         => ToolRegistry.Register("update", "Check nuget.org and update ncm to the latest version", Run);
 
-    //Run 查版本 有新版本先下包 再放脚本并起它 没有就报一句已是最新
+    //Run checks the version, downloads the package and starts the script when newer, or reports it is up to date
     private static int Run(string[] args)
     {
         var current = CurrentVersion();
@@ -44,14 +42,14 @@ internal static class UpdateTool
             return 0;
         }
 
-        //升级要换掉安装目录里的文件 还占着的实例会跟着出问题 先问一句
+        //The update replaces files in the install directory, which breaks running instances, so ask first
         if (!ConfirmUnlocked())
         {
             Console.WriteLine("Update cancelled");
             return 1;
         }
 
-        //包先下到手里 脚本随后拿它当源装 不让 dotnet 再去网上拉一遍
+        //Download the package first so the script can install from it instead of fetching again
         if (Download(latest) is null)
             return 1;
 
@@ -62,8 +60,8 @@ internal static class UpdateTool
         return 0;
     }
 
-    //ConfirmUnlocked 升级前看一眼 ncm 是不是还被别的进程占着
-    //占着就问一句要不要硬来 回车算不继续 输入接不上也一样
+    //ConfirmUnlocked checks whether another process still holds ncm before updating
+    //If so it asks whether to force it, with an empty or unavailable answer meaning no
     private static bool ConfirmUnlocked()
     {
         var executable = NcmExecutable();
@@ -83,9 +81,9 @@ internal static class UpdateTool
             warn: true);
     }
 
-    //NcmExecutable ncm 的可执行文件
-    //dotnet tool 的 shim 落在用户主目录的 .dotnet/tools 下 名字就是命令名
-    //shim 不在时退回当前进程自己的可执行文件
+    //NcmExecutable is the ncm executable
+    //The dotnet tool shim lives in .dotnet/tools under the user profile, named after the command
+    //It falls back to the current process image when the shim is missing
     private static string? NcmExecutable()
     {
         var shim = Path.Combine(
@@ -94,7 +92,7 @@ internal static class UpdateTool
         return File.Exists(shim) ? shim : Environment.ProcessPath;
     }
 
-    //Lockers 还活着的其他 ncm 进程 自己那个不算
+    //Lockers are the other live ncm processes, excluding the current one
     private static List<int> Lockers()
     {
         var self = Environment.ProcessId;
@@ -108,8 +106,8 @@ internal static class UpdateTool
         return lockers;
     }
 
-    //IsLocked 可执行文件连独占打开都拿不到就是有谁占着
-    //Linux 那边不做强制锁 这条路只补 Windows 上按进程名认不出来的情况
+    //IsLocked reports a holder when even an exclusive open of the executable fails
+    //Linux has no mandatory locking, so this only covers the cases Windows process names miss
     private static bool IsLocked(string? executable)
     {
         if (executable is null || !File.Exists(executable))
@@ -127,7 +125,7 @@ internal static class UpdateTool
         }
     }
 
-    //Download 把新版包下进更新缓存 下过了就直接用 返回包路径 下不动返回 null
+    //Download fetches the new package into the update cache, reusing it if present, and returns its path or null
     private static string? Download(string version)
     {
         Directory.CreateDirectory(CacheLayout.Update);
@@ -138,7 +136,7 @@ internal static class UpdateTool
             return target;
         }
 
-        //扁平容器接口里包名段一律小写 版本段照 nuget 上的写法
+        //The flat container path lowercases the package segment and uses the version as published on nuget
         var name = PackageId.ToLowerInvariant();
         var url = $"https://api.nuget.org/v3-flatcontainer/{name}/{version.ToLowerInvariant()}/{name}.{version.ToLowerInvariant()}.nupkg";
 
@@ -156,7 +154,7 @@ internal static class UpdateTool
         }
     }
 
-    //CurrentVersion 当前程序集的版本 去掉 SourceLink 挂在 + 后面的提交号
+    //CurrentVersion is the assembly version with the SourceLink commit suffix after + stripped
     private static string CurrentVersion()
     {
         var assembly = Assembly.GetExecutingAssembly();
@@ -167,8 +165,8 @@ internal static class UpdateTool
         return plus >= 0 ? text[..plus] : text;
     }
 
-    //LatestVersion 取 nuget 上最新的稳定版 拿不到返回 null
-    //只看不带预发布标记的 与 dotnet tool install 不加 --prerelease 的口径一致
+    //LatestVersion picks the newest stable version on nuget, or null when unavailable
+    //Only versions without a prerelease tag count, matching dotnet tool install without --prerelease
     private static string? LatestVersion()
     {
         try
@@ -194,9 +192,9 @@ internal static class UpdateTool
         }
     }
 
-    //ReleaseScript 在更新缓存里放一个更新脚本 平台不同命令不同
-    //用 dotnet tool update 从下载好的那一份装 版本与源都钉死
-    //头一行是延迟 等 ncm 退出后 dotnet 才动得了安装目录里的文件
+    //ReleaseScript writes an update script into the update cache, with different commands per platform
+    //It installs with dotnet tool update from the downloaded package, pinning both version and source
+    //The first line delays so dotnet can touch the install directory once ncm has exited
     private static string ReleaseScript(string version)
     {
         var windows = OperatingSystem.IsWindows();
@@ -205,8 +203,8 @@ internal static class UpdateTool
 
         var lines = new[]
         {
-            //Windows 上用 ping 而不是 timeout 后者在输入被重定向时会直接退出 起不到延迟作用
-            //这一秒是等 ncm 退出 把安装目录里的文件让出来
+            //Use ping instead of timeout on Windows, since timeout exits immediately when input is redirected
+            //The delay waits for ncm to exit and release the files in the install directory
             windows ? "ping -n 2 127.0.0.1 >nul" : "sleep 1",
             $"dotnet tool update -g {PackageId} --version {version} --add-source \"{CacheLayout.Update}\"",
         };
@@ -219,8 +217,8 @@ internal static class UpdateTool
         return path;
     }
 
-    //Launch 起脚本 不等它结束 让 ncm 立刻退出
-    //工作目录定在脚本那一处 只给文件名 用户目录带空格也不会被引号绊住
+    //Launch starts the script without waiting so ncm can exit right away
+    //The working directory is the script's folder and only the file name is given, avoiding quoting issues when the user directory has spaces
     private static void Launch(string script)
     {
         var windows = OperatingSystem.IsWindows();
@@ -230,7 +228,7 @@ internal static class UpdateTool
             WorkingDirectory = Path.GetDirectoryName(script)!,
             UseShellExecute = false,
         };
-        //ncm 的输出统一走英文 子进程别跟着系统语言变
+        //ncm prints in English, so keep the child process from following the system language
         startInfo.Environment["DOTNET_CLI_UI_LANGUAGE"] = "en";
 
         if (windows)
@@ -240,8 +238,8 @@ internal static class UpdateTool
         Process.Start(startInfo);
     }
 
-    //Compare 版本号比较 返回 -1 / 0 / 1
-    //先逐段比数字 缺的段按 0 补 数字一样时带预发布标记的算小
+    //Compare orders two versions and returns -1, 0 or 1
+    //It compares the numeric segments with missing ones as 0, and a prerelease tag sorts lower on equal numbers
     private static int Compare(string left, string right)
     {
         var (leftCore, leftPre) = Split(left);
@@ -260,7 +258,7 @@ internal static class UpdateTool
         return string.CompareOrdinal(leftPre, rightPre);
     }
 
-    //Split 把版本号切成数字段与预发布标记两截 + 之后的内容丢掉
+    //Split cuts a version into its numeric core and prerelease tag, dropping anything after +
     private static (string Core, string Pre) Split(string version)
     {
         var text = version;
@@ -272,7 +270,6 @@ internal static class UpdateTool
         return dash >= 0 ? (text[..dash], text[(dash + 1)..]) : (text, string.Empty);
     }
 
-    //CompareParts 逐段比数字
     private static int CompareParts(string left, string right)
     {
         var a = ParseParts(left);
@@ -288,7 +285,7 @@ internal static class UpdateTool
         return 0;
     }
 
-    //ParseParts 取各段的数字 遇到不是数字的段就截断
+    //ParseParts reads the numeric segments and stops at the first non-numeric one
     private static List<int> ParseParts(string text)
     {
         var parts = new List<int>();

@@ -1,12 +1,10 @@
 namespace NetCraft.ModBuild.Compile;
 
-//Incremental 增量判定
-//照搬 MSBuild 那套 拿输入跟输出比时间戳 输出不比任何输入旧就不用重编
-//MSBuild 也只看时间戳 切分支或改系统时间造成的漏编它一样挡不住
+//Incremental check modeled on MSBuild: compare input and output timestamps and skip the build when the output is not older than any input
+//Like MSBuild it only sees timestamps, so it cannot catch misses caused by switching branches or changing the system clock
 internal static class Incremental
 {
-    //IsUpToDate 输出在且不比任何输入旧
-    //输入清单里列不全就会漏判 所以那边宁多勿少
+    //Inputs must be listed generously because a missing entry silently turns into an up to date verdict
     public static bool IsUpToDate(string target, IEnumerable<string> inputs)
     {
         var output = new FileInfo(target);

@@ -4,26 +4,23 @@ using NetCraft.ModBuild.Diagnostics;
 
 namespace NetCraft.ModBuild.Gui;
 
-//UiPage 拼出面板页面
-//文档与用法表在起窗口前就备好 直接写进页面里的一个 JSON 变量 不走消息桥来回问
+//Builds the panel page
+//The document and usage table are prepared before the window opens and written straight into a json variable in the page, avoiding a message bridge round trip
 internal static class UiPage
 {
-    //DataToken 页面里留给数据的位置
     private const string DataToken = "/*DATA*/";
 
-    //MarkedToken 页面里留给 markdown 渲染库的位置
     private const string MarkedToken = "/*MARKED*/";
 
     private static readonly Lazy<string> Page = new(() => Resource("ui.html"));
     private static readonly Lazy<string> Marked = new(() => Resource("marked.min.js"));
 
-    //Json 页面里读的字段名是小写驼峰 序列化跟着转 键与字符串不动
+    //The page reads lower camel case fields, so serialization converts names while keys and strings stay untouched
     private static readonly JsonSerializerOptions Json = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
-    //Build 把文档与用法表塞进页面
     public static string Build(TemplateCatalog? catalog)
     {
         var data = JsonSerializer.Serialize(new Payload(LoadDocument(catalog), ScanUsage(catalog)), Json);
@@ -31,8 +28,7 @@ internal static class UiPage
         return Page.Value.Replace(MarkedToken, Marked.Value).Replace(DataToken, data);
     }
 
-    //ScanUsage 在模组项目里时扫一遍源码 不在项目里就交一张空表
-    //空表只是让页面不显示侧边栏 不会去打扰用户
+    //Scans the source when inside a mod project and returns an empty list otherwise, which just hides the sidebar
     private static List<Usage> ScanUsage(TemplateCatalog? catalog)
     {
         var items = new List<Usage>();
@@ -50,7 +46,7 @@ internal static class UiPage
 
         var usage = ApiUsage.Scan(root, catalog);
 
-        //有问题的排前面 同组按名字排 面板上要改的地方一眼能看到
+        //Problems first then by name, so what needs fixing is visible at a glance on the panel
         var ordered = usage.Items
             .OrderBy(item => item.State == UsageState.Ok ? 1 : 0)
             .ThenBy(item => item.Symbol, StringComparer.Ordinal);
@@ -70,7 +66,7 @@ internal static class UiPage
         return items;
     }
 
-    //LoadDocument 取清单指定的文档 取不到时把原因当成一段 markdown 交出去
+    //Loads the catalog's document, turning any failure into a markdown explanation
     private static string LoadDocument(TemplateCatalog? catalog)
     {
         if (catalog is null)
@@ -87,7 +83,6 @@ internal static class UiPage
         return File.ReadAllText(path);
     }
 
-    //Resource 读同程序集里的内嵌资源
     private static string Resource(string name)
     {
         using var stream = typeof(UiPage).Assembly.GetManifestResourceStream(name)
@@ -96,10 +91,8 @@ internal static class UiPage
         return reader.ReadToEnd();
     }
 
-    //Payload 页面要的数据 字段名就是页面里读的那几个
     private sealed record Payload(string Document, List<Usage> Usage);
 
-    //Usage 侧边栏里的一条用法
     private sealed record Usage(
         string Symbol,
         string State,

@@ -1,21 +1,21 @@
 namespace NetCraft.ModBuild.Diagnostics;
 
-//Applicability 一条建议的可信度 与 rustc 的四档对齐
+//Applicability how much a suggestion can be trusted, aligned with rustc's four levels
 public enum Applicability
 {
-    //MachineApplicable 照着改一定对 机器可以直接应用
+    //applying it is always correct, so a machine can do so directly
     MachineApplicable,
-    //HasPlaceholders 骨架对 里面还留着要人补的占位
+    //the shape is right but placeholders still need a person to fill them
     HasPlaceholders,
-    //MaybeIncorrect 是猜的 需要人确认
+    //a guess that needs a person to confirm
     MaybeIncorrect,
-    //Unspecified 说不准
+    //undetermined
     Unspecified,
 }
 
-//Suggestion 一条修复建议
-//带 Replacement 的画成改后的代码 只有 Message 的当纯文字提示
-//Span 用 1 起算的行列 与 Diagnostic 那套保持一致
+//Suggestion one fix suggestion
+//one carrying a Replacement renders as corrected code while a message-only one is plain text
+//positions use 1-based line and column to match Diagnostic
 public sealed record Suggestion(
     string Message,
     int Line,
@@ -24,14 +24,14 @@ public sealed record Suggestion(
     string? Replacement,
     Applicability Applicability)
 {
-    //Replaceable 这条能不能给出可替换的正文
+    //Replaceable reports whether this suggestion can supply replacement text
     public bool Replaceable => Replacement is not null && Length > 0;
 
-    //Text 纯文字提示 没有指向源码的落点
+    //Text builds a plain-text suggestion with no location in the source
     public static Suggestion Text(string message)
         => new(message, 0, 0, 0, null, Applicability.Unspecified);
 
-    //Replace 可替换的建议 指向某一行的某一段
+    //Replace builds a replacement suggestion pointing at a span of a line
     public static Suggestion Replace(
         string message,
         int line,

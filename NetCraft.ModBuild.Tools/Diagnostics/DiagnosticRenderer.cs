@@ -2,11 +2,11 @@ using System.Globalization;
 
 namespace NetCraft.ModBuild.Diagnostics;
 
-//DiagnosticRenderer 把诊断画成 rustc 那样的块
-//一条诊断一段 位置行加指示箭头 下面是说明与修复候选
+//DiagnosticRenderer draws diagnostics as rustc-style blocks
+//each block shows the position line, a caret, then the message and any fixes
 public static class DiagnosticRenderer
 {
-    //Render 依次输出全部诊断
+    //Render writes every diagnostic in order
     public static void Render(IEnumerable<Diagnostic> diagnostics)
     {
         foreach (var diagnostic in diagnostics)
@@ -18,7 +18,7 @@ public static class DiagnosticRenderer
         var severity = diagnostic.Severity == DiagnosticSeverity.Error ? "error" : "warning";
         var color = diagnostic.Severity == DiagnosticSeverity.Error ? ConsoleColor.Red : ConsoleColor.Yellow;
 
-        //行号占几列 后面那些竖线就缩进几列 对不齐会很难看
+        //the gutter width follows the line number so the following pipes line up
         var pad = new string(' ', diagnostic.Line.ToString(CultureInfo.InvariantCulture).Length);
 
         WriteColored($"{severity}[{diagnostic.Code}]", color);
@@ -39,14 +39,14 @@ public static class DiagnosticRenderer
             Console.WriteLine($"{pad} = {diagnostic.Note}");
         }
 
-        //带落点的建议一条一段 画成原行与改后的行
+        //fixes with a location render as a before and after line
         foreach (var fix in diagnostic.Fixes)
         {
             if (fix.Replaceable)
                 RenderReplacement(pad, diagnostic, fix);
         }
 
-        //没有落点的文字建议直接列出来 不再加一层套话标题
+        //text-only fixes are listed as-is, without an extra heading
         var advice = diagnostic.Fixes.Where(fix => !fix.Replaceable).ToList();
         if (advice.Count > 0)
         {
@@ -54,7 +54,7 @@ public static class DiagnosticRenderer
             foreach (var fix in advice)
                 Console.WriteLine($"{pad} = {fix.Message}");
         }
-        //一条建议都给不出时才拿文档地址兜底 可替换的那种也算给了
+        //the documentation url is the fallback only when nothing else was offered, counting replaceable fixes as offered
         else if (diagnostic.Fixes.Count == 0 && !string.IsNullOrWhiteSpace(diagnostic.Link))
         {
             Console.WriteLine($"{pad} |");
@@ -64,10 +64,10 @@ public static class DiagnosticRenderer
         Console.WriteLine();
     }
 
-    //RenderReplacement 画一条替换建议 原行标减 改后的行标加
+    //RenderReplacement draws one replacement fix with the original line marked minus and the updated line marked plus
     private static void RenderReplacement(string pad, Diagnostic diagnostic, Suggestion fix)
     {
-        //建议落在别行时手上没有那行的原文 退回文字 免得画出对不上的代码
+        //a fix on another line has no source text here, so fall back to plain text rather than showing mismatched code
         if (fix.Line != diagnostic.Line || string.IsNullOrEmpty(diagnostic.SourceLine))
         {
             Console.WriteLine($"{pad} = {fix.Message}");
@@ -93,7 +93,7 @@ public static class DiagnosticRenderer
         Console.WriteLine();
     }
 
-    //Replace 拿建议里的正文盖掉行内的那一段
+    //Replace swaps the fix's replacement text into the line range
     private static string? Replace(string line, Suggestion fix)
     {
         var start = fix.Column - 1;
@@ -107,15 +107,15 @@ public static class DiagnosticRenderer
         return line[..start] + fix.Replacement + line[end..];
     }
 
-    //LinkText 把文档地址渲染成终端里可点的一段文字
-    //认不出终端支持超链接就退回带上地址的纯文本 免得看不出来指向哪
+    //LinkText renders the documentation url as clickable terminal text
+    //when the terminal does not support links it falls back to plain text carrying the url
     private static string LinkText(string url)
         => SupportsLinks()
             ? $"\u001b[36m\u001b[4m\u001b]8;;{url}\u001b\\docs\u001b]8;;\u001b\\\u001b[0m"
             : $"docs: {url}";
 
-    //SupportsLinks 当前终端认不认 OSC 8 超链接
-    //输出被重定向时一律不发 免得往文件里塞转义序列
+    //SupportsLinks reports whether the terminal handles OSC 8 hyperlinks
+    //redirected output disables them so escape sequences never land in a file
     private static bool SupportsLinks()
     {
         if (Console.IsOutputRedirected)
@@ -125,16 +125,16 @@ public static class DiagnosticRenderer
         if (!string.IsNullOrEmpty(term) && !string.Equals(term, "dumb", StringComparison.OrdinalIgnoreCase))
             return true;
 
-        //Windows 上没有 TERM 这套 认这两个终端标记 Windows Terminal 与 VS Code
+        //Windows sets no TERM, so these markers identify Windows Terminal and VS Code
         return !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WT_SESSION"))
             || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("TERM_PROGRAM"));
     }
 
-    //Indent 列号从 1 起 转成箭头前要留的空格
+    //Indent converts a 1-based column into the spaces that precede the caret
     private static string Indent(int column)
         => column <= 1 ? string.Empty : new string(' ', column - 1);
 
-    //WriteColored 临时换个颜色写一段 写完恢复
+    //WriteColored writes in a temporary color and restores the previous one
     private static void WriteColored(string text, ConsoleColor color)
     {
         var previous = Console.ForegroundColor;

@@ -21,8 +21,9 @@
   </ItemGroup>
 
   <!--
-    引擎按名字从本机 sdk 目录解析 输出目录里要是留着 nuget 那份就会先被用上
-    与 sdk 版本对不上 解析器与 targets 都会翻车 所以构建完就把它清掉
+    The engine resolves these assemblies by name from the local SDK, so a NuGet copy
+    left in the output folder wins first and mismatches the SDK, breaking the resolvers
+    and targets; delete it after build.
   -->
   <Target Name="DropMsBuildRuntime" AfterTargets="Build">
     <ItemGroup>
@@ -38,9 +39,9 @@
   <ItemGroup>
     <PackageReference Include="ICSharpCode.Decompiler" Version="11.1.0.9782" />
     <!--
-      Microsoft.Build 只用来编译 运行时不带它自己的程序集。
-      引擎必须用本机 sdk 自带那一份 否则 sdk 的解析器与 targets 会因为接口对不上直接翻车
-      运行期由 Targets/MsBuildLibrary.cs 从 sdk 目录挂进来。
+      Microsoft.Build is compile-only and ships without its own runtime assemblies,
+      because the engine must use the SDK's copy or the resolvers and targets fail on
+      a mismatched interface; Targets/MsBuildLibrary.cs loads them from the SDK at runtime.
     -->
     <PackageReference Include="Microsoft.Build" Version="17.14.28" ExcludeAssets="runtime" />
     <PackageReference Include="Microsoft.Build.Framework" Version="17.14.28" ExcludeAssets="runtime" />

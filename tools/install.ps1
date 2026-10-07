@@ -1,7 +1,7 @@
-# NetCraft 开发工具链一键安装
-# 装三样 .NET 10 SDK dotnet new 项目模板 ncm 命令行工具
-# 幂等 已经有的会跳过或就地更新 重复跑不会出问题
-# 用法 ./tools/install.ps1
+# One-shot installer for the NetCraft development toolchain.
+# Installs the .NET 10 SDK, the dotnet new project template and the ncm CLI.
+# Idempotent: existing pieces are skipped or updated in place, so reruns are safe.
+# Usage: ./tools/install.ps1
 
 $ErrorActionPreference = "Stop"
 
@@ -11,8 +11,7 @@ $ToolId = "NetCraft.ModBuild.Tools"
 $InstallRoot = Join-Path $env:USERPROFILE ".dotnet"
 $ToolsDir = Join-Path $InstallRoot "tools"
 
-#Invoke-Dotnet 跑一条 dotnet 命令 退出码非零直接终止脚本
-#原生命令失败不会触发 $ErrorActionPreference 不自己看退出码就会一路跑到末尾报成功
+#Invoke-Dotnet runs a dotnet command and aborts on a non-zero exit code, because a native failure does not trip $ErrorActionPreference
 function Invoke-Dotnet([string[]]$Command) {
     & dotnet @Command
     if ($LASTEXITCODE -ne 0) {
@@ -20,19 +19,18 @@ function Invoke-Dotnet([string[]]$Command) {
     }
 }
 
-#Test-Command 命令在不在 PATH 上
 function Test-Command([string]$Name) {
     return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
 }
 
-#Test-Sdk 本机有没有指定大版本的 SDK
+#Test-Sdk checks whether the machine has an SDK for the given major version
 function Test-Sdk([string]$Major) {
     if (-not (Test-Command "dotnet")) { return $false }
     $sdks = & dotnet --list-sdks 2>$null
     return [bool]($sdks | Where-Object { $_ -match "^$Major\." })
 }
 
-#Install-Sdk 走官方脚本把 SDK 装进用户目录 不动系统级那份
+#Install-Sdk uses the official script to install the SDK into the user directory without touching the system-wide copy
 function Install-Sdk {
     $script = Join-Path $env:TEMP "dotnet-install.ps1"
     Write-Host "downloading dotnet-install.ps1"
@@ -55,12 +53,12 @@ else {
     Write-Host "installed SDK $(& dotnet --version)"
 }
 
-#工具目录也挂进当前会话 后面 ncm 才叫得出来
+#Tools directory must also be on PATH for ncm to be callable later in this session
 $env:PATH = "$ToolsDir;$env:PATH"
 
 Write-Host "==> installing project template"
 
-#站到临时目录再装 当前目录同名的目录会被优先当成模板路径 那样装进去的是本地源码不是 nuget 包
+#Install from a temp directory, otherwise a same-named folder in the current directory is treated as the template source and local sources get installed instead of the NuGet package
 Push-Location $env:TEMP
 try {
     Invoke-Dotnet @("new", "install", $TemplateId, "--force")

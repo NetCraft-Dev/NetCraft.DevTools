@@ -2,14 +2,13 @@ using NetCraft.ModBuild.Diagnostics;
 
 namespace NetCraft.ModBuild.Core;
 
-//Help 帮助文本 不带参数或参数不认识时打印
+//Help text printed when no argument is given or the argument is unknown
 public static class Help
 {
-    //Usage 命令行形状 工具名之后的参数由各工具自己解析
+    //Command line shape; each tool parses the arguments that follow its name
     public const string Usage = "ncm <tool> [options]";
 
-    //Print 列出全部工具与各自的一句话说明
-    //当前目录属于一个项目时再补一段这个项目自己的任务
+    //Print every tool with its one-line description, plus the current project's own tasks when inside one
     public static void Print(TextWriter writer)
     {
         writer.WriteLine("NetCraft mod development tools");
@@ -26,7 +25,7 @@ public static class Help
         writer.WriteLine("Run 'ncm help <tool>' to see the parameters of one tool.");
     }
 
-    //UnknownTool 红色报一句没认出来的名字 有相近的再跟一句建议
+    //Report an unrecognized name in red, adding a suggestion when a close match exists
     public static void UnknownTool(TextWriter writer, string name, string? suggestion)
     {
         Red(writer, $"Unknown tool: {name}");
@@ -34,7 +33,7 @@ public static class Help
             writer.WriteLine($"Did you mean \"{suggestion}\"?");
     }
 
-    //Candidates 能当建议的名字 内置工具加上这个项目里能跑的任务
+    //Names eligible as suggestions, built-in tools plus the project's runnable tasks
     public static List<string> Candidates(NcProject? project)
     {
         var names = ToolRegistry.All.Select(entry => entry.Name).ToList();
@@ -43,10 +42,10 @@ public static class Help
         return names;
     }
 
-    //PrintTool 打印一个工具的参数说明 内置里没有就看是不是项目任务 返回进程退出码
+    //Print one tool's parameter help, falling back to a project task when no built-in matches, and return the process exit code
     public static int PrintTool(TextWriter writer, string name)
     {
-        //与执行那边同一套优先级 先精确命中项目任务 再宽松找内置
+        //Same precedence as execution, an exact project task wins over a loose built-in match
         var project = NcProject.TryFind(Environment.CurrentDirectory, out _);
         var task = project?.FindTask(name);
         if (task is not null)
@@ -71,14 +70,14 @@ public static class Help
         }
 
         writer.WriteLine("Parameters:");
-        //两列按最长的那个用法对齐 短名字后面补齐空格
+        //Align the two columns on the longest syntax by padding shorter names
         var width = tool.Parameters.Max(item => item.Syntax.Length);
         foreach (var parameter in tool.Parameters)
             writer.WriteLine($"  {parameter.Syntax.PadRight(width)}  {parameter.Description}");
         return 0;
     }
 
-    //WriteProjectTasks 补一段项目任务 撞上内置的名字另外提一句
+    //Append the project's tasks, warning when a name shadows a built-in
     private static void WriteProjectTasks(TextWriter writer)
     {
         var project = NcProject.TryFind(Environment.CurrentDirectory, out var error);
@@ -106,7 +105,7 @@ public static class Help
             Warning(writer, $"task {task.Name} conflicts with a built-in tool name, consider renaming it");
     }
 
-    //WriteTask 打印一个项目任务 说明 前置与每个步骤
+    //Print a project task's title, dependencies and steps
     private static void WriteTask(TextWriter writer, NcTask task)
     {
         writer.WriteLine($"{task.Name} - {task.Title}");
@@ -128,7 +127,6 @@ public static class Help
             writer.WriteLine($"  {step.Text}");
     }
 
-    //Warning 黄色警告一行
     private static void Warning(TextWriter writer, string message)
     {
         var previous = Console.ForegroundColor;
@@ -137,7 +135,6 @@ public static class Help
         Console.ForegroundColor = previous;
     }
 
-    //Red 红色错误一行
     private static void Red(TextWriter writer, string message)
     {
         var previous = Console.ForegroundColor;
