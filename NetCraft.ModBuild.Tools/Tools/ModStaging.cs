@@ -20,12 +20,13 @@ internal static class ModStaging
 
     //Stage prepares the mods directory and reports whether startup can continue
     //Any failing step returns false, the server should not start without staged mods
-    public static bool Stage(string projectRoot, string runDirectory)
+    public static bool Stage(string projectRoot, string runDirectory, bool stageModApi = true)
     {
         var mods = Path.Combine(runDirectory, ModsDirectoryName);
         Directory.CreateDirectory(mods);
 
-        StageModApi(projectRoot, mods);
+        if (stageModApi)
+            StageModApi(projectRoot, mods);
 
         //Diagnose and build, collect the output into the project's Build and move it all into mods
         if (BuildTool.Run([]) != 0)

@@ -22,7 +22,9 @@ internal static class KernelStore
             return false;
 
         //The mod api lives in the loader assembly, so the compile reference must include it
-        ServerLauncher.SyncKernel(ServerStore.Root, destination, includeModLoader: true);
+        //A project that declares it does not use the api skips it, keeping that assembly out of a pure mod
+        ServerLauncher.SyncKernel(ServerStore.Root, destination, includeModLoader: true,
+            includeModApi: project?.Build.DependsOnModApi ?? NcBuild.DefaultDependsOnModApi);
         if (HasAssemblies(destination))
             return true;
 

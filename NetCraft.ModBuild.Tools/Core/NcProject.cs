@@ -35,8 +35,12 @@ public sealed class NcBuild
 
     public static readonly string[] OutputTypes = [DefaultOutputType, ExeOutputType];
 
+    //Whether a project depends on the mod api when the config omits the switch
+    //Every template mod does, and only a pure mod that talks to the kernel directly can turn it off
+    public const bool DefaultDependsOnModApi = true;
+
     public NcBuild(string assemblyName, string configuration, string output, string extraArgs, bool nullable,
-        bool implicitUsings, string defineConstants, string outputType, string rootNamespace)
+        bool implicitUsings, string defineConstants, string outputType, string rootNamespace, bool dependsOnModApi)
     {
         AssemblyName = assemblyName;
         Configuration = string.IsNullOrWhiteSpace(configuration) ? DefaultConfiguration : configuration;
@@ -47,6 +51,7 @@ public sealed class NcBuild
         DefineConstants = defineConstants;
         OutputType = Normalized(outputType);
         RootNamespace = rootNamespace;
+        DependsOnModApi = dependsOnModApi;
     }
 
     //Assembly name, empty falls back to the manifest id and then to the directory name
@@ -75,6 +80,10 @@ public sealed class NcBuild
 
     //Root namespace, empty follows the assembly name and only affects the default resource names
     public string RootNamespace { get; }
+
+    //Whether the mod api is restored as a compile reference and staged next to the mod
+    //Turn it off for a pure mod that does not use the api, so ncm never pulls that assembly in
+    public bool DependsOnModApi { get; }
 
     //Normalize an output type ignoring case, falling back to the library type
     private static string Normalized(string value)
@@ -562,7 +571,7 @@ public sealed class NcProject
         var packages = new List<NcPackage>();
         var check = new NcCheck(string.Empty);
         var build = new NcBuild(string.Empty, string.Empty, string.Empty, string.Empty, true, true, string.Empty,
-            string.Empty, string.Empty);
+            string.Empty, string.Empty, NcBuild.DefaultDependsOnModApi);
         var server = new NcServer(string.Empty, string.Empty, false);
         var client = new NcClient(string.Empty, string.Empty, string.Empty);
         NcSource? sources = null;
@@ -758,7 +767,8 @@ public sealed class NcProject
             ReadBool(element, "ImplicitUsings", true, path),
             (string?)element.Attribute("DefineConstants") ?? string.Empty,
             outputType,
-            (string?)element.Attribute("RootNamespace") ?? string.Empty);
+            (string?)element.Attribute("RootNamespace") ?? string.Empty,
+            ReadBool(element, "DependsOnModApi", NcBuild.DefaultDependsOnModApi, path));
     }
 
     //Read each package dependency under <Packages>

@@ -59,7 +59,8 @@ internal static class RunServerTool
         }
 
         var root = Path.GetDirectoryName(project.ManifestPath)!;
-        if (!ModStaging.Stage(root, ServerLauncher.RunDirectory))
+        if (!ModStaging.Stage(root, ServerLauncher.RunDirectory,
+            config?.Build.DependsOnModApi ?? NcBuild.DefaultDependsOnModApi))
             return 1;
 
         var arguments = Arguments(config, args);

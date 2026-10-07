@@ -21,6 +21,9 @@ internal static class ServerLauncher
 
     private const string ModLoaderAssemblyName = "NetCraft.ModLoader";
 
+    //ModApiAssemblyName the mod api assembly name
+    private const string ModApiAssemblyName = "NetCraft.ModApi";
+
     private const string ServerAssemblyName = "NetCraft.Server";
 
     //Launch prepares the run folder, syncs the kernel and starts through the same path as the server entry point
@@ -86,8 +89,10 @@ internal static class ServerLauncher
     //Files matching on name and size are skipped, keeping later runs cheap
     //includeModLoader adds the loader for the project's compile references, which need the mod interfaces it carries
     //The run folder must not have it, since the main library and loader are already loaded here
+    //includeModApi adds the mod api for projects built against it, a pure mod leaves it out
     //The root assembly NetCraft.dll also carries types those compile references need
-    internal static void SyncKernel(string source, string destination, bool includeModLoader = false)
+    internal static void SyncKernel(string source, string destination, bool includeModLoader = false,
+        bool includeModApi = true)
     {
         Directory.CreateDirectory(destination);
 
@@ -95,7 +100,10 @@ internal static class ServerLauncher
         var copied = 0;
         foreach (var path in Directory.EnumerateFiles(source, pattern))
         {
-            if (!includeModLoader && Path.GetFileNameWithoutExtension(path) == ModLoaderAssemblyName)
+            var name = Path.GetFileNameWithoutExtension(path);
+            if (!includeModLoader && name == ModLoaderAssemblyName)
+                continue;
+            if (!includeModApi && name == ModApiAssemblyName)
                 continue;
 
             var target = Path.Combine(destination, Path.GetFileName(path));

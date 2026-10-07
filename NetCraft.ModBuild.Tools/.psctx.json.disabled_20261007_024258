@@ -1,6 +1,0 @@
-{
-  "Name": "NetCraft.ModBuild.Tools",
-  "EnableAmpersandFork": true,
-  "ShowProjectNameInPrompt": false,
-  "Env": {}
-}

@@ -213,7 +213,7 @@ Everything the build needs at build time lives under `Build`: `Build/kernel` hol
 | Element | Attributes |
 |---|---|
 | `Check` | `LangVersion` — the C# version used for the api and syntax checks |
-| `Build` | `AssemblyName`, `Configuration`, `Output`, `OutputType` — `Library` (the default) or `Exe`, a plain compilation choice, ncm writes neither an apphost nor a runtimeconfig, `RootNamespace` — used as the default prefix of embedded resource names, `Nullable`, `ImplicitUsings`, `DefineConstants`, `ExtraArgs` |
+| `Build` | `AssemblyName`, `Configuration`, `Output`, `OutputType` — `Library` (the default) or `Exe`, a plain compilation choice, ncm writes neither an apphost nor a runtimeconfig, `RootNamespace` — used as the default prefix of embedded resource names, `Nullable`, `ImplicitUsings`, `DefineConstants`, `ExtraArgs`, `DependsOnModApi` — whether the mod api is restored as a compile reference and staged next to the mod, `true` by default; set it to `false` for a pure mod that does not use the api |
 | `Packages` | one `Package` per dependency with `Id` and an optional `Version`, the version range syntax matches NuGet |
 | `References` | `File` — a dll path or pattern, `*`, `?` and `**` work as wildcards; `Project` — the directory or the project file of another project, ncproj or csproj. Both are resolved relative to the project root and only used as compile references, never embedded into the mod nor deployed. A referenced project is built first, so its output is up to date |
 | `Server` | `Cache` — where the runtime files are cached, the shared download cache by default, `Args` — extra server arguments, `Debug` — always run in debug mode |
