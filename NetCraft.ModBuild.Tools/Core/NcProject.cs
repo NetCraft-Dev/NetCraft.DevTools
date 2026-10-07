@@ -198,25 +198,35 @@ public enum NcStepKind
     Exec,
     Copy,
     Zip,
+    Tool,
 }
 
 //A step inside a task
-//Exec uses Command while Copy and Zip use From and To, leaving the unused fields empty
+//Exec uses Command, Copy and Zip use From and To, Tool uses Name, Method and Args, leaving the unused fields empty
 public sealed class NcStep
 {
-    private NcStep(NcStepKind kind, string command, string from, string to)
+    private NcStep(NcStepKind kind, string command, string from, string to, string name, string method, string args)
     {
         Kind = kind;
         Command = command;
         From = from;
         To = to;
+        Name = name;
+        Method = method;
+        Args = args;
     }
 
-    public static NcStep Exec(string command) => new(NcStepKind.Exec, command, string.Empty, string.Empty);
+    public static NcStep Exec(string command)
+        => new(NcStepKind.Exec, command, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty);
 
-    public static NcStep Copy(string from, string to) => new(NcStepKind.Copy, string.Empty, from, to);
+    public static NcStep Copy(string from, string to)
+        => new(NcStepKind.Copy, string.Empty, from, to, string.Empty, string.Empty, string.Empty);
 
-    public static NcStep Zip(string from, string to) => new(NcStepKind.Zip, string.Empty, from, to);
+    public static NcStep Zip(string from, string to)
+        => new(NcStepKind.Zip, string.Empty, from, to, string.Empty, string.Empty, string.Empty);
+
+    public static NcStep Tool(string name, string method, string args)
+        => new(NcStepKind.Tool, string.Empty, string.Empty, string.Empty, name, method, args);
 
     //Kind of this step
     public NcStepKind Kind { get; }
@@ -230,11 +240,21 @@ public sealed class NcStep
     //Destination, relative to the project root
     public string To { get; }
 
+    //Plugin name for the Tool kind
+    public string Name { get; }
+
+    //Entry point for the Tool kind
+    public string Method { get; }
+
+    //Arguments for the Tool kind, split the same way as the server arguments
+    public string Args { get; }
+
     //Text used for display and fingerprinting
     public string Text => Kind switch
     {
         NcStepKind.Copy => $"copy {From} -> {To}",
         NcStepKind.Zip => $"zip {From} -> {To}",
+        NcStepKind.Tool => $"tool {Name} {Method} {Args}".TrimEnd(),
         _ => Command,
     };
 }
@@ -289,7 +309,7 @@ public sealed class NcProject
         IReadOnlyList<NcPackage> packages, IReadOnlyList<NcTask> tasks, NcServer server, NcClient client,
         NcSource? sources, NcTemplate? template, IReadOnlyList<string> friends, IReadOnlyList<string> deploy,
         IReadOnlyList<string> resources, IReadOnlyList<NcResource> embedded, IReadOnlyList<string> files,
-        IReadOnlyList<string> projects)
+        IReadOnlyList<string> projects, IReadOnlyList<string> exclude)
     {
         Path = path;
         Directory = System.IO.Path.GetDirectoryName(path)!;
@@ -308,6 +328,7 @@ public sealed class NcProject
         EmbeddedResources = embedded;
         FileReferences = files;
         ProjectReferences = projects;
+        Exclude = exclude;
     }
 
     //Full path of the config file
@@ -348,6 +369,10 @@ public sealed class NcProject
 
     //Directories the build output is copied to, relative to the project root or absolute
     public IReadOnlyList<string> DeployTargets { get; }
+
+    //Patterns kept out of everything ncm scans on its own: the compile source list, the checks and the resource pick up
+    //Patterns explicitly declared elsewhere are still honored, so an excluded directory can still be referenced on purpose
+    public IReadOnlyList<string> Exclude { get; }
 
     //Patterns packed into !AvaloniaResources, relative to the project root
     public IReadOnlyList<string> AvaloniaResources { get; }
@@ -578,6 +603,7 @@ public sealed class NcProject
         NcTemplate? template = null;
         var friends = new List<string>();
         var deploy = new List<string>();
+        var exclude = new List<string>();
         var resources = new List<string>();
         var embedded = new List<NcResource>();
         var files = new List<string>();
@@ -606,6 +632,8 @@ public sealed class NcProject
                 ReadFriends(element, path, friends);
             else if (Folded(name, "Deploy"))
                 deploy.AddRange(Split((string?)element.Attribute("To"), ';'));
+            else if (Folded(name, "Exclude"))
+                exclude.AddRange(Split((string?)element.Attribute("Include"), ';'));
             else if (Folded(name, "AvaloniaResources"))
                 ReadResources(element, path, resources);
             else if (Folded(name, "EmbeddedResources"))
@@ -617,7 +645,7 @@ public sealed class NcProject
         }
 
         return new NcProject(path, overrides, check, build, packages, tasks, server, client, sources,
-            template, friends, deploy, resources, embedded, files, projects);
+            template, friends, deploy, resources, embedded, files, projects, exclude);
     }
 
     //Read each embedded resource under <EmbeddedResources>
@@ -829,7 +857,8 @@ public sealed class NcProject
     }
 
     //Read the steps of a task
-    //Exec takes the element text while Copy and Zip take From and To, and unsupported kinds only produce a warning
+    //Exec takes the element text, Copy and Zip take From and To, Tool takes Name, Method and Args
+    //unsupported kinds only produce a warning
     private static List<NcStep> ReadSteps(XElement task, string name, string path)
     {
         var steps = new List<NcStep>();
@@ -841,6 +870,20 @@ public sealed class NcProject
                 var text = step.Value.Trim();
                 if (text.Length > 0)
                     steps.Add(NcStep.Exec(text));
+                continue;
+            }
+
+            if (string.Equals(kind, "Tool", StringComparison.OrdinalIgnoreCase))
+            {
+                var plugin = (string?)step.Attribute("Name") ?? string.Empty;
+                var method = (string?)step.Attribute("Method") ?? string.Empty;
+                if (string.IsNullOrWhiteSpace(plugin) || string.IsNullOrWhiteSpace(method))
+                {
+                    Warn($"<Tool> in task {name} needs both Name and Method, skipped");
+                    continue;
+                }
+
+                steps.Add(NcStep.Tool(plugin, method, (string?)step.Attribute("Args") ?? string.Empty));
                 continue;
             }
 

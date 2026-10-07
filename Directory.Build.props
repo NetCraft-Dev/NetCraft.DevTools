@@ -18,9 +18,9 @@
     <Copyright>Copyright (c) NetCraft Contributors</Copyright>
 
     <!-- ncm and the project template share this version, so bump it here on release -->
-    <VersionPrefix>1.5.5</VersionPrefix>
-    <AssemblyVersion>1.5.5.0</AssemblyVersion>
-    <FileVersion>1.5.5.0</FileVersion>
+    <VersionPrefix>1.5.6</VersionPrefix>
+    <AssemblyVersion>1.5.6.0</AssemblyVersion>
+    <FileVersion>1.5.6.0</FileVersion>
   </PropertyGroup>
 
 </Project>

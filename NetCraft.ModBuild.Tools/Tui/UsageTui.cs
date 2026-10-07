@@ -27,6 +27,9 @@ internal static class UsageTui
         }
 
         var root = Path.GetDirectoryName(project.ManifestPath)!;
+
+        //Exclusions apply to the source scan, so they have to be in place before the panel enumerates
+        SourceFiles.Configure(NcProject.TryFind(root, out _));
         return IsInteractive() ? Loop(root, catalog, project) : Report(root, catalog, project);
     }
 

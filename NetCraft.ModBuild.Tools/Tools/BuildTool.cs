@@ -114,6 +114,9 @@ internal static class BuildTool
             return 1;
         }
 
+        //Exclusions apply to the source scan, so they have to be in place before anything enumerates
+        SourceFiles.Configure(config);
+
         //The direct build and the checks both need references, so kernel assemblies and packages come first
         if (config is not null && !Prepare(root, config))
             return 1;

@@ -47,6 +47,26 @@ internal static class PathPattern
         }
     }
 
+    //Compile a pattern into a predicate over project relative paths using forward slashes
+    //A pattern without a wildcard also covers everything under it, so a directory name alone excludes its whole subtree
+    //An empty pattern matches nothing
+    public static Func<string, bool> Compile(string pattern)
+    {
+        var normalized = pattern.Replace('\\', '/').TrimStart('/').TrimEnd('/');
+        if (normalized.Length == 0)
+            return static _ => false;
+
+        if (normalized.IndexOfAny(['*', '?']) < 0)
+        {
+            var prefix = normalized + "/";
+            return path => path.Equals(normalized, StringComparison.OrdinalIgnoreCase)
+                || path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+        }
+
+        var expression = new Regex(Glob(normalized), RegexOptions.IgnoreCase);
+        return path => expression.IsMatch(path);
+    }
+
     //Translate a glob into a regex where ** crosses directories and * and ? stay in one segment
     private static string Glob(string pattern)
     {

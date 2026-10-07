@@ -48,7 +48,7 @@ internal static class CleanTool
                 freed += RemoveDownloads(project);
         }
         //Outside a project only the shared cache can be cleared, ask before touching it
-        else if (all || AskDownloads())
+        else if (all || AskDownloads(project))
         {
             freed += RemoveDownloads(project);
         }
@@ -63,47 +63,45 @@ internal static class CleanTool
 
     //AskDownloads asks whether to clear the shared cache, showing its location and size
     //With redirected input nobody can answer, so it only explains what to do instead of deleting
-    private static bool AskDownloads()
+    private static bool AskDownloads(NcProject? project)
     {
-        //The update cache sits beside the download cache, together they make up everything ncm keeps in the user directory
-        var size = (Size(CacheLayout.Root) + Size(CacheLayout.Update)) / 1024.0 / 1024.0;
-        if (!Directory.Exists(CacheLayout.Root) && !Directory.Exists(CacheLayout.Update))
+        var caches = Cached(project).Where(item => Directory.Exists(item.Directory)).ToList();
+        if (caches.Count == 0)
         {
-            Console.WriteLine($"No project here and everything ncm downloaded under {CacheLayout.Home} is already gone");
+            Console.WriteLine($"No project here and everything ncm downloaded under {CacheLayout.Root} is already gone");
             return false;
         }
 
+        var size = caches.Sum(item => Size(item.Directory)) / 1024.0 / 1024.0;
         if (Console.IsInputRedirected)
         {
-            Console.WriteLine($"No project here, what ncm downloaded under {CacheLayout.Home} takes {size:F1} MB, pass {AllOption} to remove it");
+            Console.WriteLine($"No project here, what ncm downloaded under {CacheLayout.Root} takes {size:F1} MB, pass {AllOption} to remove it");
             return false;
         }
 
-        Console.WriteLine($"No project here, what ncm downloaded under {CacheLayout.Home} takes {size:F1} MB");
+        Console.WriteLine($"No project here, what ncm downloaded under {CacheLayout.Root} takes {size:F1} MB");
         return Prompt.Confirm("Remove it?", defaultYes: true, warn: true);
     }
 
-    //RemoveDownloads clears the shared download cache and, when the project points the server cache elsewhere, that copy too
+    //RemoveDownloads clears every cache ncm can lay down again
+    //Installed plugins are not cache: nothing can fetch them back, so they are left alone
     private static long RemoveDownloads(NcProject? project)
+        => Cached(project).Sum(item => Remove(item.Directory, item.What));
+
+    //Cached the directories ncm can rebuild, together with the name to report them under
+    //The server cache is taken wherever the project points it, which is the default location unless overridden
+    private static (string Directory, string What)[] Cached(NcProject? project)
     {
-        var freed = Remove(CacheLayout.Root, "download cache");
-
-        //The package and scripts kept in the update cache are useless, the next update re-downloads them
-        freed += Remove(CacheLayout.Update, "update cache");
-
         ServerStore.Configure(project);
-        if (!SamePath(ServerStore.Root, CacheLayout.Server))
-            freed += Remove(ServerStore.Root, "server cache");
-
-        return freed;
+        return
+        [
+            (CacheLayout.Client, "client cache"),
+            (ServerStore.Root, "server cache"),
+            (CacheLayout.Template, "template cache"),
+            (CacheLayout.Packages, "package cache"),
+            (CacheLayout.Update, "update cache"),
+        ];
     }
-
-    //SamePath whether two paths point to the same place, ignoring case and trailing separators
-    private static bool SamePath(string left, string right)
-        => string.Equals(
-            Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-            Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-            StringComparison.OrdinalIgnoreCase);
 
     //Remove deletes one directory and returns the freed bytes
     private static long Remove(string directory, string what)

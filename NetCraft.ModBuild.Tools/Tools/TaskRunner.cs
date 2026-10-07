@@ -67,6 +67,15 @@ internal static class TaskRunner
             return Execute(line, root);
         }
 
+        if (step.Kind == NcStepKind.Tool)
+        {
+            var plugin = Interpolate(step.Name, variables);
+            var method = Interpolate(step.Method, variables);
+            var args = Interpolate(step.Args, variables);
+            Console.WriteLine($"> tool {plugin} {method} {args}".TrimEnd());
+            return Tool(plugin, method, args);
+        }
+
         var from = Interpolate(step.From, variables);
         var to = Interpolate(step.To, variables);
         Console.WriteLine($"> {(step.Kind == NcStepKind.Copy ? "copy" : "zip")} {from} -> {to}");
@@ -328,6 +337,21 @@ internal static class TaskRunner
         {
             Trace.Log($"cannot write {path}: {e.Message}");
         }
+    }
+
+    //Tool calls an installed plugin inside this process, the arguments split the same way the server arguments are
+    private static bool Tool(string plugin, string method, string args)
+    {
+        var code = PluginHost.Run(plugin, method, ArgumentLine.Split(args), out var error);
+        if (code == 0)
+            return true;
+
+        Console.ForegroundColor = ConsoleColor.Red;
+        Console.WriteLine(!string.IsNullOrEmpty(error)
+            ? $"error: {error}"
+            : $"error: plugin {plugin} {method} exited with code {code}");
+        Console.ResetColor();
+        return false;
     }
 
     //Execute runs a command through the system shell with the project root as the working directory

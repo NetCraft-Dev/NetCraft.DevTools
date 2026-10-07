@@ -26,6 +26,7 @@ public static class Program
         RunServerTool.Register();
         UpgradeTool.Register();
         UpdateTool.Register();
+        ToolCommand.Register();
 
         if (args.Length == 0)
         {

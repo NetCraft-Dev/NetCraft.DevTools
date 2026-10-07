@@ -45,6 +45,8 @@ ncm clean [--all]               # drop the build cache, --all drops the download
 ncm runserver                   # build the mod and run the server
 ncm asm <assembly>              # inspect any .NET assembly
 ncm icon                        # write a white background mod icon
+ncm tool add|remove|list         # install, remove and list plugins
+ncm tool <plugin> <method>      # run an installed plugin
 ncm upgrade                     # convert a csproj project to a .ncproj one
 ncm update                      # check nuget.org, then update ncm itself
 
@@ -94,6 +96,28 @@ Declare a dependency or a reference in the project config. The change is written
 
 `file` and `project` take a path relative to the current directory and store it relative to the project root.
 
+### `tool`
+
+Install, remove and run plugins. A plugin is a class library: the name is the folder it lives in, the method picks an entry point on the type carrying that name (as its own name or as its full name, so `MyPlugin.Tools.dll` can stand for the class `Tools` in the namespace `MyPlugin`), and that entry point has to be a `public static int` method taking a `string[]`, with its return value becoming ncm's exit code.
+
+```
+ncm tool add out/MyPlugin.dll    # copies the dlls beside it into the tool cache
+ncm tool list                    # MyPlugin
+ncm tool MyPlugin Build --release
+ncm tool remove MyPlugin
+```
+
+| Parameter | Description |
+|---|---|
+| `add <dll>` | Install a plugin: every dll beside the given one is copied into the tool cache under the dll's own name, and installing twice overwrites. Needs no `.ncproj`, a plugin belongs to the machine |
+| `remove <plugin>` | Remove an installed plugin |
+| `list` | List the installed plugins, one per line |
+| `<plugin> <method> [args]` | Run the plugin: the entry point to call is one of its public static int methods taking `string[]`, and the other usable ones are listed when the name is wrong. Everything after the method is passed through unchanged |
+
+`add`, `remove` and `list` are taken as subcommands, so a plugin cannot be named after one of them.
+
+Plugins run inside the ncm process, so they reach everything ncm reaches: there is no sandbox, and one that calls `Environment.Exit` takes ncm down with it. Installing does not check the entry point either, so a plugin whose shape is wrong only says so when it is called.
+
 ### `restore`
 
 Resolve the `<Packages>` declared in the project config and copy their assemblies and build files into the project, under `Build/packages` and `Build/targets`. `build` runs the same step on its own, so this is only needed when the restored files are wanted without a build.
@@ -117,11 +141,11 @@ Diagnose and build the mod project in the current directory. The kernel referenc
 
 In a project this removes its build cache, `Build`, and leaves the downloads alone: the next build lays it down again. Outside a project the only thing there is to remove is the shared download cache, so ncm says where it is and how big it is and asks first.
 
-Everything ncm downloads lives under the user directory — `%LOCALAPPDATA%\NetCraft` on Windows, `~/.local/share/NetCraft` on Linux, `~/Library/Application Support/NetCraft` on macOS. The shared cache sits in `ncm/`, the self-update package and its script in `Update/`. Updating or reinstalling ncm leaves both alone, and every project on the machine reuses the same copy.
+Everything ncm keeps for itself lives under the user directory — `%LOCALAPPDATA%\NetCraft\ncm` on Windows, `~/.local/share/NetCraft/ncm` on Linux, `~/Library/Application Support/NetCraft/ncm` on macOS — where `Client/`, `Server/`, `Template/`, `packages/` and `Update/` are the caches ncm can lay down again, and `Tool/` holds the plugins you installed. Updating or reinstalling ncm leaves all of it alone, and every project on the machine reuses the same copy.
 
 | Parameter | Description |
 |---|---|
-| `--all` | Remove both without asking: the client jar, the server runtime, the template files, the packages and the update package. In a project the build cache goes as well |
+| `--all` | Remove every cache without asking: the client jar, the server runtime, the template files, the packages and the update package. Installed plugins are not cache and are kept, and in a project the build cache goes as well |
 
 ### `runserver`
 
@@ -205,6 +229,8 @@ Everything the build needs at build time lives under `Build`: `Build/kernel` hol
       <Exec>ncm build</Exec>
       <Copy From="Build/*.dll" To="dist/" />
       <Zip From="dist" To="dist/$(ModId)-$(ModVersion).zip" />
+      <!-- optional, only for a plugin installed with 'ncm add tool' -->
+      <Tool Name="MyPlugin" Method="Pack" Args="--out dist" />
     </Task>
   </Tasks>
 </ncproj>
@@ -224,7 +250,8 @@ Everything the build needs at build time lives under `Build`: `Build/kernel` hol
 | `AvaloniaResources` | one `Resource` per pattern with `Include`, packed into the `!AvaloniaResources` resource the Avalonia asset loader reads; every `*.axaml` of the project is picked up as well, so only plain assets have to be listed |
 | `EmbeddedResources` | one `Resource` per pattern with `Include` and an optional `LogicalName`; every matched file is embedded into the built assembly. Without `LogicalName` the resource name is the root namespace plus the file path relative to the project root, slashes turned into dots, so files outside the project root need an explicit one |
 | `Deploy` | `To` — semicolon separated directories the built dll is copied into right after a successful build |
-| `Tasks` | one `Task` per task with `Name`, `Description`, `Depends` and `Override`, holding `Exec` steps that run a command line, `Copy` steps that take `From` and `To`, and `Zip` steps that pack the `From` directory into the `To` file. `$(Configuration)`, `$(ProjectDir)`, `$(ModId)`, `$(ModName)`, `$(ModVersion)` and `$(env:NAME)` are substituted in every attribute |
+| `Exclude` | `Include` — semicolon separated patterns kept out of everything ncm scans on its own: the compile source list, the api and syntax checks and the axaml pick up. `*` and `?` stay within one segment and `**` crosses directories; a pattern without a wildcard also covers everything under it, so `Exclude Include="legacy"` and `legacy/**` are the same. Patterns declared elsewhere, such as `<References>` or `<AvaloniaResources>`, are still honored as written, so an excluded directory can still be referenced on purpose |
+| `Tasks` | one `Task` per task with `Name`, `Description`, `Depends` and `Override`, holding `Exec` steps that run a command line, `Copy` steps that take `From` and `To`, `Zip` steps that pack the `From` directory into the `To` file, and `Tool` steps that take `Name`, `Method` and `Args` and call an installed plugin in this process. `$(Configuration)`, `$(ProjectDir)`, `$(ModId)`, `$(ModName)`, `$(ModVersion)` and `$(env:NAME)` are substituted in every attribute |
 | root | `Override` — the default for tasks that do not carry their own |
 
 ## License

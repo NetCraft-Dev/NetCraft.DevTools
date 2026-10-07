@@ -19,6 +19,9 @@ public static class CSharpAnalyzer
         @"(?:x:)?Name\s*=\s*""([A-Za-z_][A-Za-z0-9_]*)""",
         RegexOptions.Compiled);
 
+    //MaxNamespaces caps how many candidate namespaces a missing using advice lists
+    private const int MaxNamespaces = 4;
+
     //Analyze compiles the project sources and collects errors into bag, skipping identifiers the catalog pass already reported
     public static void Analyze(string root, DiagnosticBag bag, IReadOnlySet<string> covered)
         => Analyze(root, CompileOptions.Default, bag, covered);
@@ -37,6 +40,7 @@ public static class CSharpAnalyzer
         //UI files declare named controls and an initialization method that the compiler synthesizes, so they have no source on disk
         var declared = XamlMembers(root);
         var cache = new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase);
+        var namespaces = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         var reported = 0;
 
         foreach (var diagnostic in project.Compilation.GetDiagnostics())
@@ -62,7 +66,7 @@ public static class CSharpAnalyzer
                 continue;
 
             //try a concrete fix first; when it applies, skip the generic advice
-            var suggestion = SuggestFor(project.Compilation, diagnostic);
+            var suggestion = SuggestFor(project.Compilation, diagnostic, namespaces);
             var fixes = suggestion is not null
                 ? new List<Suggestion> { suggestion }
                 : CompileAdvice.Text(diagnostic.Id).Select(Suggestion.Text).ToList();
@@ -87,8 +91,9 @@ public static class CSharpAnalyzer
     }
 
     //SuggestFor derives one actionable fix for a compile error, or null when it cannot
-    //only the two misspelled-name cases are handled; the rest fall back to the static table in CompileAdvice
-    private static Suggestion? SuggestFor(Compilation compilation, RoslynDiagnostic diagnostic)
+    //only the two name cases are handled; the rest fall back to the static table in CompileAdvice
+    private static Suggestion? SuggestFor(Compilation compilation, RoslynDiagnostic diagnostic,
+        Dictionary<string, List<string>> namespaces)
     {
         var tree = diagnostic.Location.SourceTree;
         if (tree is null)
@@ -99,18 +104,34 @@ public static class CSharpAnalyzer
 
         return diagnostic.Id switch
         {
-            "CS0103" or "CS0246" => SuggestName(model, diagnostic, span),
+            "CS0103" or "CS0246" => SuggestName(model, compilation, diagnostic, span, namespaces),
             "CS0117" or "CS1061" => SuggestMember(model, diagnostic, span),
             _ => null,
         };
     }
 
-    //SuggestName picks the closest symbol visible at that point when a name is not found
-    private static Suggestion? SuggestName(SemanticModel model, RoslynDiagnostic diagnostic, TextSpan span)
+    //SuggestName turns a name that does not resolve into the most useful advice
+    //a name declared in a namespace this file does not import is a missing using, and telling the user to rename it
+    //to whatever symbol happens to sit nearby would send them the wrong way
+    private static Suggestion? SuggestName(SemanticModel model, Compilation compilation, RoslynDiagnostic diagnostic,
+        TextSpan span, Dictionary<string, List<string>> namespaces)
     {
         var written = TextOf(diagnostic, span);
         if (string.IsNullOrEmpty(written))
             return null;
+
+        //a qualified use reports the first part that does not resolve, so only that part can be a missing using
+        var name = LeadingIdentifier(written);
+
+        //a name that still resolves to a type or namespace here is some other problem, so keep to the closeness advice
+        if (model.LookupNamespacesAndTypes(span.Start, name: name).Length == 0)
+        {
+            var declared = DeclaringNamespaces(compilation, name, namespaces);
+            if (declared.Count == 1)
+                return Suggestion.Text($"`{name}` is declared in `{declared[0]}`, add `using {declared[0]};`");
+            if (declared.Count > 1)
+                return Suggestion.Text($"`{name}` is declared in {Joined(declared)}, add a using for the one you meant");
+        }
 
         var names = model.LookupSymbols(span.Start).Select(symbol => symbol.Name);
         var candidate = Similarity.Closest(written, names);
@@ -126,6 +147,56 @@ public static class CSharpAnalyzer
             candidate,
             Applicability.MaybeIncorrect);
     }
+
+    //LeadingIdentifier takes the part before the first dot, which is the name that fails to resolve
+    private static string LeadingIdentifier(string text)
+    {
+        var dot = text.IndexOf('.');
+        return dot < 0 ? text : text[..dot];
+    }
+
+    //DeclaringNamespaces lists the namespaces holding a type of that name, nearest few only so the advice stays readable
+    //looked up once per name, a project tends to trip over the same missing using across many lines
+    private static List<string> DeclaringNamespaces(Compilation compilation, string name,
+        Dictionary<string, List<string>> cache)
+    {
+        if (cache.TryGetValue(name, out var cached))
+            return cached;
+
+        var found = new List<string>();
+        CollectNamespaces(compilation.GlobalNamespace, name, compilation, found);
+        cache[name] = found;
+        return found;
+    }
+
+    //CollectNamespaces walks the compilation's namespaces, both the project's own and the referenced assemblies'
+    //a type this assembly cannot reach is not something a using can fix, so accessibility is checked here
+    private static void CollectNamespaces(INamespaceSymbol space, string name, Compilation compilation,
+        List<string> found)
+    {
+        foreach (var type in space.GetTypeMembers(name))
+        {
+            if (!compilation.IsSymbolAccessibleWithin(type, compilation.Assembly))
+                continue;
+
+            var declared = type.ContainingNamespace.ToDisplayString();
+            if (declared.Length > 0 && !found.Contains(declared, StringComparer.Ordinal))
+                found.Add(declared);
+            if (found.Count >= MaxNamespaces)
+                return;
+        }
+
+        foreach (var nested in space.GetNamespaceMembers())
+        {
+            CollectNamespaces(nested, name, compilation, found);
+            if (found.Count >= MaxNamespaces)
+                return;
+        }
+    }
+
+    //Joined renders namespaces as a comma separated list of code spans
+    private static string Joined(IEnumerable<string> namespaces)
+        => string.Join(", ", namespaces.Select(item => $"`{item}`"));
 
     //SuggestMember picks the closest real member of the type when a member name does not match
     private static Suggestion? SuggestMember(SemanticModel model, RoslynDiagnostic diagnostic, TextSpan span)
