@@ -7,6 +7,9 @@ using ICSharpCode.Decompiler;
 using ICSharpCode.Decompiler.CSharp;
 using ICSharpCode.Decompiler.Metadata;
 using NetCraft.ModBuild.Core;
+//Cecil and the metadata reader both name several types, the aliases below keep them apart
+using CecilEmbedded = Mono.Cecil.EmbeddedResource;
+using CecilModule = Mono.Cecil.ModuleDefinition;
 
 namespace NetCraft.ModBuild.Tools;
 
@@ -22,12 +25,14 @@ internal static class AsmTool
             new("-t, --type <name>", "Show type details"),
             new("-d, --decompile <name>", "Decompile a type to C# source"),
             new("-dep, --dependencies", "List assembly dependencies"),
+            new("-res, --resources [name]", "List resources, or extract one by name with -o"),
+            new("-ar, --add-resource <file>", "Embed a file into the target assembly as a resource, repeatable"),
             new("-r, --reference <dir>", "Extra directory to look for dependencies, repeatable"),
             new("-o, --output <file>", "Write the result to a file instead of the console"),
         ]);
 
     //Mode selects what this run produces
-    private enum Mode { Summary, Details, Decompile, Dependencies }
+    private enum Mode { Summary, Details, Decompile, Dependencies, Resources }
 
     //TypeRow one entry in the type list
     private readonly record struct TypeRow(string Kind, string FullName);
@@ -39,6 +44,7 @@ internal static class AsmTool
         var query = default(string);
         var output = default(string);
         var references = new List<string>();
+        var additions = new List<string>();
         var mode = Mode.Summary;
 
         for (var index = 0; index < args.Length; index++)
@@ -59,6 +65,18 @@ internal static class AsmTool
                 case "-dep":
                 case "--dependencies":
                     mode = Mode.Dependencies;
+                    break;
+                case "-res":
+                case "--resources":
+                    mode = Mode.Resources;
+                    //the name is optional, without one this lists the resources and with one it extracts that resource
+                    if (index + 1 < args.Length && !args[index + 1].StartsWith('-'))
+                        query = args[++index];
+                    break;
+                case "-ar":
+                case "--add-resource":
+                    if (!TakeValue(args, ref index, out var addition)) return 1;
+                    additions.Add(addition!);
                     break;
                 case "-r":
                 case "--reference":
@@ -99,6 +117,32 @@ internal static class AsmTool
             return 1;
         }
 
+        //Adding a resource rewrites the target itself, so it stands alone instead of sharing the read modes
+        if (additions.Count > 0)
+        {
+            if (mode != Mode.Summary || output is not null)
+            {
+                Console.WriteLine("error: --add-resource writes the target, it does not combine with a read mode or -o");
+                return 1;
+            }
+
+            try
+            {
+                return AddResources(path, additions);
+            }
+            catch (Exception e)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine($"error: {e.GetType().Name}: {e.Message}");
+                Console.ResetColor();
+                return 1;
+            }
+        }
+
+        //Extracting writes bytes rather than text, so it stands before the text modes
+        if (mode == Mode.Resources && query is not null)
+            return Extract(path, query, output);
+
         string text;
         try
         {
@@ -107,6 +151,7 @@ internal static class AsmTool
                 Mode.Details => Details(path, query!),
                 Mode.Decompile => Decompile(path, query!, references),
                 Mode.Dependencies => Dependencies(path),
+                Mode.Resources => Resources(path),
                 _ => Summary(path),
             };
         }
@@ -147,13 +192,15 @@ internal static class AsmTool
     //PrintUsage prints the help text
     private static void PrintUsage()
     {
-        Console.WriteLine("Usage: ncm asm <assembly> [-t <type> | -d <type> | -dep] [-r <directory>] [-o <file>]");
+        Console.WriteLine("Usage: ncm asm <assembly> [-t <type> | -d <type> | -dep | -res [name]] [-r <directory>] [-o <file>]");
         Console.WriteLine("  <assembly>        path to a .NET assembly");
         Console.WriteLine("  -t, --type        show type details");
         Console.WriteLine("  -d, --decompile   decompile a type to C# source");
         Console.WriteLine("  -dep              list assembly dependencies");
+        Console.WriteLine("  -res [name]       list embedded resources, or extract one by name");
+        Console.WriteLine("  -ar, --add-resource  embed a file into the target assembly as a resource, repeatable");
         Console.WriteLine("  -r, --reference   extra directory to look for dependencies, repeatable");
-        Console.WriteLine("  -o, --output      write the result to a file instead of the console");
+        Console.WriteLine("  -o, --output      write to a file: the text output, or the extracted resource");
     }
 
     //Summary an assembly summary plus the full type list
@@ -354,6 +401,182 @@ internal static class AsmTool
         foreach (var reference in references.OrderBy(item => item, StringComparer.OrdinalIgnoreCase))
             builder.AppendLine($"  {reference}");
         return builder.ToString();
+    }
+
+    //Resources the embedded and linked resources of the assembly
+    //The loader takes ncmod.json as the mod declaration and every .dll resource as an embedded dependency, so both are named
+    private static string Resources(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+
+        var rows = new List<(string Name, long Size, string Kind)>();
+        foreach (var handle in reader.ManifestResources)
+        {
+            var resource = reader.GetManifestResource(handle);
+            var embedded = resource.Implementation.IsNil;
+            var name = reader.GetString(resource.Name);
+            rows.Add((name, embedded ? EmbeddedSize(pe, resource) : -1, KindOf(name, embedded)));
+        }
+
+        var builder = new StringBuilder();
+        builder.AppendLine($"resources ({rows.Count}):");
+        foreach (var row in rows.OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase))
+            builder.AppendLine($"  {row.Name,-30} {Size(row.Size),10}  {row.Kind}");
+        return builder.ToString();
+    }
+
+    //Block the section data an embedded resource sits in, starting at its own length prefix
+    //ManifestResource.Offset is relative to the CLI resources directory, not to the file
+    private static ImmutableArray<byte> Block(PEReader pe, ManifestResource resource)
+    {
+        var directory = pe.PEHeaders.CorHeader?.ResourcesDirectory.RelativeVirtualAddress ?? 0;
+        return directory == 0 ? default : pe.GetSectionData(directory + (int)resource.Offset).GetContent();
+    }
+
+    //EmbeddedSize the byte length of an embedded resource, or -1 when it cannot be read
+    private static long EmbeddedSize(PEReader pe, ManifestResource resource)
+    {
+        var block = Block(pe, resource);
+        return block.IsDefault || block.Length < 4 ? -1 : BitConverter.ToInt32(block.AsSpan());
+    }
+
+    //Bytes the content of an embedded resource, its length prefix excluded
+    private static byte[] Bytes(PEReader pe, ManifestResource resource)
+    {
+        var block = Block(pe, resource);
+        if (block.IsDefault || block.Length < 4)
+            return [];
+
+        //A declared length past the section would mean a broken file, the section is the limit that counts
+        var length = Math.Clamp(BitConverter.ToInt32(block.AsSpan()), 0, block.Length - 4);
+        return block.AsSpan(4, length).ToArray();
+    }
+
+    //Extract writes one embedded resource out to a file
+    //Without -o it lands in the current directory under the resource name, the way template example pulls a file in
+    private static int Extract(string path, string query, string? output)
+    {
+        using var stream = File.OpenRead(path);
+        using var pe = new PEReader(stream);
+        var reader = pe.GetMetadataReader();
+
+        var handle = ResolveResource(reader, query);
+        if (handle is null)
+        {
+            Console.WriteLine(NotFoundResource(reader, query));
+            return 1;
+        }
+
+        var resource = reader.GetManifestResource(handle.Value);
+        if (!resource.Implementation.IsNil)
+        {
+            Console.WriteLine($"error: {reader.GetString(resource.Name)} is a linked resource, only embedded ones can be taken out");
+            return 1;
+        }
+
+        var target = Path.GetFullPath(output ?? reader.GetString(resource.Name));
+        Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+        File.WriteAllBytes(target, Bytes(pe, resource));
+        Console.WriteLine($"written to {target}");
+        return 0;
+    }
+
+    //ResolveResource matches a resource by full name, or by a unique trailing part the way types are matched
+    private static ManifestResourceHandle? ResolveResource(MetadataReader reader, string query)
+    {
+        var rows = new List<(ManifestResourceHandle Handle, string Name)>();
+        foreach (var handle in reader.ManifestResources)
+            rows.Add((handle, reader.GetString(reader.GetManifestResource(handle).Name)));
+
+        var exact = rows.FirstOrDefault(row => row.Name.Equals(query, StringComparison.OrdinalIgnoreCase));
+        if (exact.Name is not null)
+            return exact.Handle;
+
+        var suffix = rows.Where(row => row.Name.EndsWith("." + query, StringComparison.OrdinalIgnoreCase)).ToList();
+        return suffix.Count == 1 ? suffix[0].Handle : null;
+    }
+
+    //NotFoundResource the message when nothing matched, naming the ones that look similar
+    private static string NotFoundResource(MetadataReader reader, string query)
+    {
+        var near = reader.ManifestResources
+            .Select(handle => reader.GetString(reader.GetManifestResource(handle).Name))
+            .Where(name => name.Contains(query, StringComparison.OrdinalIgnoreCase))
+            .Take(8)
+            .ToList();
+
+        return near.Count > 0
+            ? $"error: no resource named {query}, did you mean: {string.Join(", ", near)}"
+            : $"error: no resource named {query}";
+    }
+
+    //KindOf how the loader reads a resource: the mod declaration, an embedded dependency, or anything else
+    private static string KindOf(string name, bool embedded)
+    {
+        if (!embedded)
+            return "linked";
+        if (name == ModProject.ManifestName)
+            return "mod manifest";
+        return name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? "mod dependency" : "resource";
+    }
+
+    //Size renders a byte count, or a dash when it could not be read
+    private static string Size(long bytes) => bytes < 0 ? "-" : $"{bytes} B";
+
+    //AddResources embeds each file into the target assembly as a public manifest resource
+    //The resource name is the file name, which is what the loader matches an embedded dependency by
+    //A name already taken is replaced, so pointing at an existing resource is how a replacement is done
+    private static int AddResources(string target, List<string> paths)
+    {
+        foreach (var path in paths)
+        {
+            if (!File.Exists(path))
+            {
+                Console.WriteLine($"error: no such resource file {Path.GetFullPath(path)}");
+                return 1;
+            }
+        }
+
+        //Written beside the target and moved over it, so a failure never leaves a half written assembly behind
+        var temporary = target + ".rewriting";
+        var done = new List<string>();
+
+        try
+        {
+            using (var module = CecilModule.ReadModule(target, new Mono.Cecil.ReaderParameters { InMemory = true }))
+            {
+                foreach (var path in paths)
+                {
+                    var full = Path.GetFullPath(path);
+                    var name = Path.GetFileName(full);
+                    var existing = module.Resources.FirstOrDefault(resource => resource.Name == name);
+                    if (existing is not null)
+                        module.Resources.Remove(existing);
+
+                    module.Resources.Add(new CecilEmbedded(name, Mono.Cecil.ManifestResourceAttributes.Public, File.ReadAllBytes(full)));
+                    done.Add($"{(existing is null ? "added" : "replaced")} {name}, {new FileInfo(full).Length} B");
+                }
+
+                //A rewrite cannot keep a strong name, the signature covers the bytes that just changed
+                if (module.Assembly.Name.HasPublicKey)
+                    Console.Error.WriteLine("warning: the target is strong named, the rewrite drops its signature");
+
+                module.Write(temporary);
+            }
+        }
+        catch
+        {
+            if (File.Exists(temporary))
+                File.Delete(temporary);
+            throw;
+        }
+
+        File.Move(temporary, target, overwrite: true);
+        foreach (var line in done)
+            Console.WriteLine(line);
+        return 0;
     }
 
     //NotFound the message when a type is missing, including a few similarly named ones

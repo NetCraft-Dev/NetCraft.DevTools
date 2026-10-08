@@ -71,6 +71,17 @@ public static class Compiler
             var source = Path.GetFullPath(product);
             var destination = Path.Combine(directory, Path.GetFileName(source));
 
+            if (!File.Exists(source))
+            {
+                error = $"referenced project produced no assembly at {source}";
+                return false;
+            }
+
+            //only a mod has to sit beside this assembly, since the mods directory is filled from this folder
+            //anything else is embedded in the output instead, see Resources
+            if (!ModAssembly.CarriesManifest(source))
+                continue;
+
             //a reference may resolve to this very assembly when a project lists itself through a shared config
             if (string.Equals(source, Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase))
                 continue;
@@ -112,6 +123,11 @@ public static class Compiler
 
         //Same for the embedded resources declared in the config, which appear only in this output
         inputs.AddRange(Embedded(root, project).Select(item => item.Path));
+
+        //An embedded referenced assembly is part of this output too, so a change to it has to force a rebuild
+        //The ones that ride beside the assembly are copied on every build instead, so they need no entry here
+        inputs.AddRange(ProjectReferences.Products(root, project)
+            .Where(path => File.Exists(path) && !ModAssembly.CarriesManifest(path)));
 
         var icon = ModProject.TryFind(root)?.IconPath;
         if (icon is not null)
@@ -257,6 +273,14 @@ public static class Compiler
             }
 
             AddFile(name, item.Path);
+        }
+
+        //A referenced project that is not a mod never reaches the mods directory, since staging only takes assemblies carrying
+        //the manifest, so its assembly is embedded here instead and the loader resolves it as an embedded dependency
+        foreach (var product in ProjectReferences.Products(root, project))
+        {
+            if (File.Exists(product) && !ModAssembly.CarriesManifest(product))
+                AddFile(Path.GetFileName(product), product);
         }
 
         return resources;

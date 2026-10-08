@@ -1,5 +1,4 @@
-using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
+using NetCraft.ModBuild.Compile;
 using NetCraft.ModBuild.Core;
 
 namespace NetCraft.ModBuild.Tools;
@@ -11,9 +10,6 @@ internal static class ModStaging
     //ModApiFileName the modapi file name inside the kernel
     //Mod dlls reference it but neither the kernel's embedded libraries nor the mod's embedded dependencies carry this assembly, so a copy must be staged in mods
     private const string ModApiFileName = "NetCraft.ModApi.dll";
-
-    //ManifestResourceName the embedded resource name a mod declares under, the loader recognizes mods by it
-    private const string ManifestResourceName = "ncmod.json";
 
     //ModsDirectoryName the mods directory name, the one the loader scans
     private const string ModsDirectoryName = "mods";
@@ -64,7 +60,7 @@ internal static class ModStaging
         var copied = 0;
         foreach (var file in Directory.EnumerateFiles(output, "*.dll"))
         {
-            if (!IsModAssembly(file))
+            if (!ModAssembly.CarriesManifest(file))
                 continue;
 
             File.Copy(file, Path.Combine(mods, Path.GetFileName(file)), overwrite: true);
@@ -73,32 +69,5 @@ internal static class ModStaging
 
         Console.WriteLine($"Staged {copied} mod assembly(ies) to {mods}");
         return true;
-    }
-
-    //IsModAssembly an assembly counts as a mod only when it embeds ncmod.json
-    //Only metadata is read, no assembly is loaded, matching the loader's own rule
-    private static bool IsModAssembly(string path)
-    {
-        try
-        {
-            using var stream = File.OpenRead(path);
-            using var pe = new PEReader(stream);
-            if (!pe.HasMetadata)
-                return false;
-
-            var reader = pe.GetMetadataReader();
-            foreach (var handle in reader.ManifestResources)
-            {
-                var resource = reader.GetManifestResource(handle);
-                if (resource.Implementation.IsNil && reader.GetString(resource.Name) == ManifestResourceName)
-                    return true;
-            }
-            return false;
-        }
-        catch (Exception e)
-        {
-            Trace.Log($"cannot inspect {path}: {e.GetType().Name}");
-            return false;
-        }
     }
 }
