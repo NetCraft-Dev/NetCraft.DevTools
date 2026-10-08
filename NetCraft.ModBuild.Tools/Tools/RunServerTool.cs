@@ -7,13 +7,13 @@ namespace NetCraft.ModBuild.Tools;
 //It stages the current mod into run/mods first and passes the remaining arguments to the server untouched
 internal static class RunServerTool
 {
-    //RefreshOption refreshes the runtime files against the remote index, skipping both the mod project and the build
+    //RefreshOption compares the cache against the remote index instead of only filling in what is missing
     private const string RefreshOption = "--refresh";
 
     public static void Register()
         => ToolRegistry.Register("runserver", "Build the current mod and run the NetCraft server", Run,
         [
-            new("--refresh", "Refresh the server cache against the remote index, no ncmod.json and no build needed"),
+            new("--refresh", "Refresh the server cache against the remote index first, outside a mod project the refresh is all that runs"),
             new("[server args]", "Everything after runserver is passed to the server unchanged"),
         ]);
 
@@ -39,15 +39,35 @@ internal static class RunServerTool
         if (ServerLauncher.Launched)
             return ServerLauncher.Launch(Arguments(config, WithoutRefresh(args)));
 
-        //--refresh only refreshes the runtime files, mod project or not
-        if (Array.IndexOf(args, RefreshOption) >= 0)
-            return ServerStore.Refresh() ? ServerLauncher.Launch(Arguments(config, WithoutRefresh(args))) : 1;
-
-        if (!ServerStore.Ensure())
+        //--refresh is not a reason to skip the mod, a refreshed kernel running a stale mod is the combination this
+        //command exists to prevent; it only changes how the runtime files are brought up to date
+        var refresh = Array.IndexOf(args, RefreshOption) >= 0;
+        if (refresh)
+        {
+            if (!ServerStore.Refresh())
+                return 1;
+        }
+        else if (!ServerStore.Ensure())
+        {
             return 1;
+        }
 
         //Check for the run directory before staging, since staging creates it
         var firstRun = !Directory.Exists(ServerLauncher.RunDirectory);
+        var arguments = Arguments(config, WithoutRefresh(args));
+
+        //--refresh stands on its own outside a mod project, where the runtime files are the whole point
+        var project = ModProject.TryFind(Environment.CurrentDirectory);
+        if (project is null)
+        {
+            if (refresh)
+                return ServerLauncher.Launch(arguments);
+
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine($"error: no {ModProject.ManifestName} in this directory or any parent");
+            Console.ResetColor();
+            return 1;
+        }
 
         //The client jar comes from the predownload; the first launch uses it to extract the assets
         var jar = ClientStore.Ensure();
@@ -55,21 +75,11 @@ internal static class RunServerTool
             return 1;
 
         //Build and deploy both work from the project root, so nothing can launch outside a mod project
-        var project = ModProject.TryFind(Environment.CurrentDirectory);
-        if (project is null)
-        {
-            Console.ForegroundColor = ConsoleColor.Red;
-            Console.WriteLine($"error: no {ModProject.ManifestName} in this directory or any parent");
-            Console.ResetColor();
-            return 1;
-        }
-
         var root = Path.GetDirectoryName(project.ManifestPath)!;
         if (!ModStaging.Stage(root, ServerLauncher.RunDirectory,
             config?.Build.DependsOnModApi ?? NcBuild.DefaultDependsOnModApi))
             return 1;
 
-        var arguments = Arguments(config, args);
         return ServerLauncher.Launch(firstRun ? WithJarPath(arguments, jar) : arguments);
     }
 

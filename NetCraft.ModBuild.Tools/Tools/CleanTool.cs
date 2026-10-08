@@ -1,9 +1,11 @@
 using NetCraft.ModBuild.Core;
+using NetCraft.ModBuild.Diagnostics;
 
 namespace NetCraft.ModBuild.Tools;
 
 //CleanTool removes the build cache
 //Inside a project it only clears Build, elsewhere only the shared download cache exists and removal asks first
+//A named target clears that one cache wherever the command is typed and asks nothing
 internal static class CleanTool
 {
     //AllOption also clears the download cache inside a project and skips the question outside one
@@ -14,22 +16,13 @@ internal static class CleanTool
         => ToolRegistry.Register("clean", "Remove the project build cache, or the shared download cache when there is no project here", Run,
         [
             new(AllOption, "Remove everything ncm downloaded without asking: the client jar, the server runtime, the template files, the packages and the update package"),
+            new("<cache>", $"Remove one downloaded cache on its own, wherever the command is typed: {CacheNames()}"),
         ]);
 
     //Run clears the project copy inside a project, or the shared copy outside one after asking
-    //Everything removed is re-fetched on the next build, so the download cache is left alone inside a project to avoid a pointless re-download
+    //Everything removed is re-fetched on the next build, so the download cache is left alone inside a project unless a target names it
     private static int Run(string[] args)
     {
-        foreach (var arg in args)
-        {
-            if (arg == AllOption)
-                continue;
-
-            Console.WriteLine($"error: unknown clean option {arg}");
-            Console.WriteLine($"Usage: ncm clean [{AllOption}]");
-            return 1;
-        }
-
         var project = NcProject.TryFind(Environment.CurrentDirectory, out var configError);
         if (!string.IsNullOrEmpty(configError))
         {
@@ -37,20 +30,56 @@ internal static class CleanTool
             return 1;
         }
 
-        var all = args.Contains(AllOption);
+        var caches = Cached(project);
+        var all = false;
+        var wanted = new List<string>();
+
+        foreach (var arg in args)
+        {
+            if (arg == AllOption)
+            {
+                all = true;
+                continue;
+            }
+
+            if (caches.Any(cache => cache.Name == arg))
+            {
+                wanted.Add(arg);
+                continue;
+            }
+
+            Console.WriteLine($"error: unknown clean argument {arg}");
+            var close = Similarity.Closest(arg, caches.Select(cache => cache.Name));
+            if (close is not null)
+                Console.WriteLine($"Did you mean {close}?");
+
+            Console.WriteLine($"Usage: ncm clean [{AllOption}] [<cache>...]");
+            return 1;
+        }
+
         var freed = 0L;
+
+        //A named target is an explicit request, so it is honored wherever the command is typed and never prompts
+        //--all already covers every cache, so naming targets alongside it changes nothing
+        if (wanted.Count > 0 && !all)
+        {
+            freed += caches.Where(cache => wanted.Contains(cache.Name)).Sum(cache => Remove(cache.Directory, cache.What));
+
+            Console.WriteLine($"Freed {freed / 1024.0 / 1024.0:F1} MB");
+            return 0;
+        }
 
         if (project is not null)
         {
             freed += Remove(Path.Combine(project.Directory, ProjectLayout.Build), "build cache");
 
             if (all)
-                freed += RemoveDownloads(project);
+                freed += RemoveDownloads(caches);
         }
         //Outside a project only the shared cache can be cleared, ask before touching it
-        else if (all || AskDownloads(project))
+        else if (all || AskDownloads(caches))
         {
-            freed += RemoveDownloads(project);
+            freed += RemoveDownloads(caches);
         }
         else
         {
@@ -63,16 +92,16 @@ internal static class CleanTool
 
     //AskDownloads asks whether to clear the shared cache, showing its location and size
     //With redirected input nobody can answer, so it only explains what to do instead of deleting
-    private static bool AskDownloads(NcProject? project)
+    private static bool AskDownloads(CacheTarget[] caches)
     {
-        var caches = Cached(project).Where(item => Directory.Exists(item.Directory)).ToList();
-        if (caches.Count == 0)
+        var present = caches.Where(cache => Directory.Exists(cache.Directory)).ToList();
+        if (present.Count == 0)
         {
             Console.WriteLine($"No project here and everything ncm downloaded under {CacheLayout.Root} is already gone");
             return false;
         }
 
-        var size = caches.Sum(item => Size(item.Directory)) / 1024.0 / 1024.0;
+        var size = present.Sum(cache => Size(cache.Directory)) / 1024.0 / 1024.0;
         if (Console.IsInputRedirected)
         {
             Console.WriteLine($"No project here, what ncm downloaded under {CacheLayout.Root} takes {size:F1} MB, pass {AllOption} to remove it");
@@ -85,23 +114,26 @@ internal static class CleanTool
 
     //RemoveDownloads clears every cache ncm can lay down again
     //Installed plugins are not cache: nothing can fetch them back, so they are left alone
-    private static long RemoveDownloads(NcProject? project)
-        => Cached(project).Sum(item => Remove(item.Directory, item.What));
+    private static long RemoveDownloads(CacheTarget[] caches)
+        => caches.Sum(cache => Remove(cache.Directory, cache.What));
 
-    //Cached the directories ncm can rebuild, together with the name to report them under
+    //Cached the directories ncm can rebuild, together with the name they are picked by and the name they are reported under
     //The server cache is taken wherever the project points it, which is the default location unless overridden
-    private static (string Directory, string What)[] Cached(NcProject? project)
+    private static CacheTarget[] Cached(NcProject? project)
     {
         ServerStore.Configure(project);
         return
         [
-            (CacheLayout.Client, "client cache"),
-            (ServerStore.Root, "server cache"),
-            (CacheLayout.Template, "template cache"),
-            (CacheLayout.Packages, "package cache"),
-            (CacheLayout.Update, "update cache"),
+            new("client", CacheLayout.Client, "client cache"),
+            new("server", ServerStore.Root, "server cache"),
+            new("template", CacheLayout.Template, "template cache"),
+            new("packages", CacheLayout.Packages, "package cache"),
+            new("update", CacheLayout.Update, "update cache"),
         ];
     }
+
+    //CacheNames lists the targets accepted on the command line, read from the same table that resolves their locations
+    private static string CacheNames() => string.Join(", ", Cached(null).Select(cache => cache.Name));
 
     //Remove deletes one directory and returns the freed bytes
     private static long Remove(string directory, string what)
@@ -138,4 +170,7 @@ internal static class CleanTool
             return 0;
         }
     }
+
+    //CacheTarget one downloaded cache: the name it is picked by, where it sits for this project and how it is reported
+    private readonly record struct CacheTarget(string Name, string Directory, string What);
 }

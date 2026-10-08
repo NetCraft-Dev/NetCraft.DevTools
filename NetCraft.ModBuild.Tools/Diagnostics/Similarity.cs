@@ -22,20 +22,25 @@ internal static class Similarity
             return prefixed;
 
         var limit = bound ?? Math.Max(2, name.Length / 2);
-        string? best = null;
+        var best = string.Empty;
         var bestDistance = int.MaxValue;
 
         foreach (var candidate in pool)
         {
             var distance = Distance(name, candidate);
-            if (distance >= bestDistance || distance > limit)
+            if (distance > limit)
+                continue;
+
+            //a tie goes to the shorter name, the one carrying fewer extra characters to strike out
+            //without this the winner would be whichever the metadata happened to list first, so `TickRate` picked `SetRate` over `Rate`
+            if (distance > bestDistance || (distance == bestDistance && candidate.Length >= best.Length))
                 continue;
 
             bestDistance = distance;
             best = candidate;
         }
 
-        return best;
+        return bestDistance == int.MaxValue ? null : best;
     }
 
     //IsPrefix checks whether a candidate starts with the name as an abbreviation, treating a single character as too broad

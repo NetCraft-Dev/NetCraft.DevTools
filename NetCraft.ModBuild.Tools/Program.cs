@@ -88,7 +88,14 @@ public static class Program
         if (rest.Length == 0 || rest[0].StartsWith('-'))
             return null;
 
-        var suggestion = Similarity.Closest(rest[0], ToolRegistry.SubCommandsOf(tool));
+        var known = ToolRegistry.SubCommandsOf(tool);
+
+        //a subcommand that already matches is left alone; an exact name is never suggested for itself, so the nearest
+        //other one would win and a valid command would be rewritten, sending `template gui` off to `tui`
+        if (known.Contains(rest[0], StringComparer.Ordinal))
+            return null;
+
+        var suggestion = Similarity.Closest(rest[0], known);
         if (suggestion is null)
             return null;
 

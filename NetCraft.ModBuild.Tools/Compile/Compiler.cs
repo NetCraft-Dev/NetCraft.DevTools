@@ -27,7 +27,7 @@ public static class Compiler
         if (Incremental.IsUpToDate(target, Inputs(root, project)))
         {
             Console.WriteLine($"Up to date, {target}");
-            return true;
+            return Deploy(root, project, target, out error);
         }
 
         var assembled = CompilationFactory.Create(root, CompileOptions.From(project, assemblyName), out error);
@@ -44,7 +44,7 @@ public static class Compiler
 
         if (errors.Count > 0)
         {
-            DiagnosticRenderer.Render(ToDiagnostics(errors, root));
+            DiagnosticRenderer.Render(ToDiagnostics(compilation, errors, root));
             error = $"{errors.Count} compile error(s)";
             return false;
         }
@@ -54,6 +54,42 @@ public static class Compiler
             return false;
 
         Console.WriteLine($"Finished build, {target}");
+        return Deploy(root, project, target, out error);
+    }
+
+    //Copies the referenced projects' outputs beside this assembly
+    //A project reference is built for its types, but at run time the loader needs the dll itself, and the mods directory is
+    //filled from this output folder, so the copy here is what carries a referenced mod into the server
+    private static bool Deploy(string root, NcProject project, string target, out string error)
+    {
+        error = string.Empty;
+        var directory = Path.GetDirectoryName(target)!;
+        var copied = 0;
+
+        foreach (var product in ProjectReferences.Products(root, project))
+        {
+            var source = Path.GetFullPath(product);
+            var destination = Path.Combine(directory, Path.GetFileName(source));
+
+            //a reference may resolve to this very assembly when a project lists itself through a shared config
+            if (string.Equals(source, Path.GetFullPath(destination), StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            try
+            {
+                File.Copy(source, destination, overwrite: true);
+                copied++;
+            }
+            catch (IOException e)
+            {
+                error = $"cannot copy {source} to {destination}: {e.Message}";
+                return false;
+            }
+        }
+
+        if (copied > 0)
+            Console.WriteLine($"Copied {copied} referenced assembly(ies) to {directory}");
+
         return true;
     }
 
@@ -147,7 +183,7 @@ public static class Compiler
 
                 if (!result.Success)
                 {
-                    DiagnosticRenderer.Render(ToDiagnostics(result.Diagnostics, root));
+                    DiagnosticRenderer.Render(ToDiagnostics(compilation, result.Diagnostics, root));
                     error = "emit failed";
                     return false;
                 }
@@ -267,9 +303,13 @@ public static class Compiler
     }
 
     //Converts Roslyn diagnostics into the project's own type so the output matches the check path
-    private static List<ProjectDiagnostic> ToDiagnostics(IEnumerable<RoslynDiagnostic> diagnostics, string root)
+    private static List<ProjectDiagnostic> ToDiagnostics(Compilation compilation,
+        IEnumerable<RoslynDiagnostic> diagnostics, string root)
     {
         var items = new List<ProjectDiagnostic>();
+        //candidates for a missing using are memoized across the errors of this compilation
+        var namespaces = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+
         foreach (var diagnostic in diagnostics)
         {
             var span = diagnostic.Location.GetLineSpan();
@@ -288,7 +328,7 @@ public static class Compiler
                 SourceLine(span.Path, span.StartLinePosition.Line + 1),
                 string.Empty,
                 diagnostic.Descriptor.HelpLinkUri,
-                CompileAdvice.Text(diagnostic.Id).Select(Suggestion.Text).ToList()));
+                CSharpAnalyzer.Fixes(compilation, diagnostic, namespaces)));
         }
         return items;
     }

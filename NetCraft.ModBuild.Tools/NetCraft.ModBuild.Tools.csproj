@@ -14,6 +14,13 @@
     <PackageId>NetCraft.ModBuild.Tools</PackageId>
     <Description>NetCraft mod development helper tools</Description>
     <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
+
+    <!--
+      The policy checks derive from DiagnosticAnalyzer, which makes the analyzer rules apply to this assembly. They all
+      assume a distributable analyzer package: this one is an internal check compiled into the tool and never shipped as
+      an analyzer, so targeting the tool's own framework and skipping release tracking are both intended.
+    -->
+    <NoWarn>$(NoWarn);RS1036;RS1041;RS2008</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
