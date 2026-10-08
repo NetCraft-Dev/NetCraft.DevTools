@@ -268,19 +268,25 @@ public static class ClientStore
         }
     }
 
-    //Look up a version in the manifest and read its client section from the version json
-    private static ClientJarFile? FindClient(string version)
+    //FindVersionUrl looks a version up in the manifest and returns the address of its version json
+    //The mirror answers with a truncated body from time to time, so a source whose payload does not parse is passed
+    //over instead of ending the lookup, and the original address gets its turn
+    private static string? FindVersionUrl(string version)
     {
-        var manifest = TryGet(MirrorManifestUrl, out var error) ?? TryGet(OfficialManifestUrl, out error);
-        if (manifest is null)
+        var error = string.Empty;
+        foreach (var url in new[] { MirrorManifestUrl, OfficialManifestUrl })
         {
-            Console.WriteLine($"error: failed to download the version manifest: {error}");
-            return null;
-        }
+            var manifest = TryGet(url, out error);
+            if (manifest is null)
+                continue;
 
-        string? jsonUrl = null;
-        using (var document = JsonDocument.Parse(manifest))
-        {
+            using var document = TryParse(manifest);
+            if (document is null)
+            {
+                Trace.Log($"manifest {url} did not parse, trying the next source");
+                continue;
+            }
+
             if (!document.RootElement.TryGetProperty("versions", out var versions))
             {
                 Console.WriteLine("error: the version manifest has no version list");
@@ -292,16 +298,25 @@ public static class ClientStore
                 if (!item.TryGetProperty("id", out var id) || id.GetString() != version)
                     continue;
 
-                jsonUrl = item.TryGetProperty("url", out var url) ? url.GetString() : null;
+                if (item.TryGetProperty("url", out var address) && address.GetString() is { Length: > 0 } target)
+                    return target;
                 break;
             }
-        }
 
-        if (string.IsNullOrEmpty(jsonUrl))
-        {
             Console.WriteLine($"error: version {version} is not listed in the manifest");
             return null;
         }
+
+        Console.WriteLine($"error: failed to download the version manifest: {error}");
+        return null;
+    }
+
+    //Look up a version in the manifest and read its client section from the version json
+    private static ClientJarFile? FindClient(string version)
+    {
+        var jsonUrl = FindVersionUrl(version);
+        if (jsonUrl is null)
+            return null;
 
         var json = TryGet(jsonUrl, out var jsonError);
         if (json is null)
@@ -310,8 +325,9 @@ public static class ClientStore
             return null;
         }
 
-        using var versionDocument = JsonDocument.Parse(json);
-        if (!versionDocument.RootElement.TryGetProperty("downloads", out var downloads)
+        using var versionDocument = TryParse(json);
+        if (versionDocument is null
+            || !versionDocument.RootElement.TryGetProperty("downloads", out var downloads)
             || !downloads.TryGetProperty("client", out var client)
             || !client.TryGetProperty("url", out var clientUrl)
             || clientUrl.GetString() is not { Length: > 0 } address)
@@ -323,6 +339,20 @@ public static class ClientStore
         var size = client.TryGetProperty("size", out var sizeValue) ? sizeValue.GetInt64() : 0L;
         var sha1 = client.TryGetProperty("sha1", out var sha1Value) ? sha1Value.GetString() ?? string.Empty : string.Empty;
         return new ClientJarFile(address, size, sha1);
+    }
+
+    //TryParse reads a downloaded json payload, treating a truncated or malformed body as a failed download
+    private static JsonDocument? TryParse(byte[] payload)
+    {
+        try
+        {
+            return JsonDocument.Parse(payload);
+        }
+        catch (JsonException e)
+        {
+            Trace.Log($"json payload did not parse: {e.Message}");
+            return null;
+        }
     }
 
     //Download a small payload through the mirror first and the original address second, retrying each a few times

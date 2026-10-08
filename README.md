@@ -224,6 +224,8 @@ Everything the build needs at build time lives under `Build`: `Build/kernel` hol
     <Resource Include="Fonts/icon.ttf" LogicalName="icon.ttf" />
   </EmbeddedResources>
   <Deploy To="run/mods;../host/mods" />
+  <!-- kept out of the compile source list, the checks and the axaml pick up -->
+  <Exclude Include="legacy/**;third_party/**" />
   <Tasks>
     <Task Name="release" Description="build and pack" Depends="check">
       <Exec>ncm build</Exec>
@@ -250,9 +252,21 @@ Everything the build needs at build time lives under `Build`: `Build/kernel` hol
 | `AvaloniaResources` | one `Resource` per pattern with `Include`, packed into the `!AvaloniaResources` resource the Avalonia asset loader reads; every `*.axaml` of the project is picked up as well, so only plain assets have to be listed |
 | `EmbeddedResources` | one `Resource` per pattern with `Include` and an optional `LogicalName`; every matched file is embedded into the built assembly. Without `LogicalName` the resource name is the root namespace plus the file path relative to the project root, slashes turned into dots, so files outside the project root need an explicit one |
 | `Deploy` | `To` — semicolon separated directories the built dll is copied into right after a successful build |
-| `Exclude` | `Include` — semicolon separated patterns kept out of everything ncm scans on its own: the compile source list, the api and syntax checks and the axaml pick up. `*` and `?` stay within one segment and `**` crosses directories; a pattern without a wildcard also covers everything under it, so `Exclude Include="legacy"` and `legacy/**` are the same. Patterns declared elsewhere, such as `<References>` or `<AvaloniaResources>`, are still honored as written, so an excluded directory can still be referenced on purpose |
+| `Exclude` | `Include` — semicolon separated patterns kept out of everything ncm scans on its own: the compile source list, the api and syntax checks and the axaml pick up. Patterns are relative to the project root, `*` and `?` stay within one segment and `**` crosses directories. A pattern without a wildcard also covers everything under it, one with a wildcard has to match the whole path — see the note below the table. Patterns declared elsewhere, such as `<References>` or `<AvaloniaResources>`, are still honored as written, so an excluded directory can still be referenced on purpose |
 | `Tasks` | one `Task` per task with `Name`, `Description`, `Depends` and `Override`, holding `Exec` steps that run a command line, `Copy` steps that take `From` and `To`, `Zip` steps that pack the `From` directory into the `To` file, and `Tool` steps that take `Name`, `Method` and `Args` and call an installed plugin in this process. `$(Configuration)`, `$(ProjectDir)`, `$(ModId)`, `$(ModName)`, `$(ModVersion)` and `$(env:NAME)` are substituted in every attribute |
 | root | `Override` — the default for tasks that do not carry their own |
+
+### `Exclude` patterns
+
+A pattern is relative to the project root and is matched against whole paths. Without a wildcard it also covers everything under the named directory; with a wildcard it does not, so a directory whose name needs one has to be written with `/**` after it. Several `<Exclude>` elements add up.
+
+```xml
+<Exclude Include="legacy" />      <!-- the directory legacy and everything under it -->
+<Exclude Include="legacy/**" />   <!-- the same thing -->
+<Exclude Include="_rev*" />       <!-- only a root entry named _rev... , never a directory's contents -->
+<Exclude Include="_rev*/**" />    <!-- every directory whose name matches, and everything under it -->
+<Exclude Include="_rev**" />      <!-- anything whose path starts with _rev, files and directories alike -->
+```
 
 ## License
 

@@ -33,6 +33,12 @@ internal static class RunServerTool
         ServerStore.Configure(config);
         ClientStore.Configure(config);
 
+        //The kernel restarts the process once to get its native layer loaded and repeats this command line to do it
+        //Everything was prepared before the first launch, and a repeat could not refresh the native layer this process
+        //has mapped anyway, so the restarted process goes straight to the launch
+        if (ServerLauncher.Launched)
+            return ServerLauncher.Launch(Arguments(config, WithoutRefresh(args)));
+
         //--refresh only refreshes the runtime files, mod project or not
         if (Array.IndexOf(args, RefreshOption) >= 0)
             return ServerStore.Refresh() ? ServerLauncher.Launch(Arguments(config, WithoutRefresh(args))) : 1;

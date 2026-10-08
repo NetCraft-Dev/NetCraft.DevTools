@@ -16,8 +16,38 @@ internal static class ServerLauncher
     //RunDirectoryName is the server run folder holding saves, logs and config
     internal const string RunDirectoryName = "run";
 
-    //RunDirectory is this run's folder under the current working directory, holding the mods and saves
-    internal static string RunDirectory => Path.Combine(Environment.CurrentDirectory, RunDirectoryName);
+    //RunFolderVariable carries this run's folder across the kernel's restart
+    //The restart copies the environment but not where the command was issued, and by then the working directory is
+    //already inside run, so deriving the folder from it again would nest one level deeper
+    private const string RunFolderVariable = "NCM_RUN_FOLDER";
+
+    //RunDirectory is this run's folder, holding the mods and saves
+    //It sits under the working directory the command was issued from, except on a restart where it is inherited
+    internal static string RunDirectory
+    {
+        get
+        {
+            var inherited = Environment.GetEnvironmentVariable(RunFolderVariable);
+            return string.IsNullOrEmpty(inherited)
+                ? Path.Combine(Environment.CurrentDirectory, RunDirectoryName)
+                : inherited;
+        }
+    }
+
+    //LaunchedVariable marks a process the kernel restarted, which finds everything the first one prepared
+    private const string LaunchedVariable = "NCM_LAUNCHED";
+
+    //Launched reports whether this process took over from one that already prepared the run
+    //Repeating the command would not only build and stage again: the native layer is mapped into this process by now,
+    //so a refresh would be asked to replace the very library it is running from
+    internal static bool Launched => Environment.GetEnvironmentVariable(LaunchedVariable) == "1";
+
+    //NativePathVariable the environment variable the kernel reads to find its native layer
+    private const string NativePathVariable = "NC_NATIVE_PATH";
+
+    //NativeLibraryNames the native layer file names per platform, the same list the kernel looks for
+    private static readonly string[] NativeLibraryNames =
+        ["netcraft_native.dll", "libnetcraft_native.so", "libnetcraft_native.dylib"];
 
     private const string ModLoaderAssemblyName = "NetCraft.ModLoader";
 
@@ -33,10 +63,20 @@ internal static class ServerLauncher
         var run = RunDirectory;
         Directory.CreateDirectory(run);
 
+        //Named before the kernel is loaded, since it is the kernel that restarts the process and what it passes on is
+        //the environment
+        Environment.SetEnvironmentVariable(RunFolderVariable, run);
+        Environment.SetEnvironmentVariable(LaunchedVariable, "1");
+
         //The kernel has to live under the program root to be found, and since the root later points at run the kernel must move with it
         SyncKernel(source, Path.Combine(run, KernelDirectoryName));
 
         Directory.SetCurrentDirectory(run);
+
+        //The native layer has to be named before the kernel comes up
+        //It is only ever loaded as a profiler, from a path fixed at process start, and the kernel looks for it beside the
+        //program, which under runserver is ncm itself rather than the cache it was downloaded into
+        PointNativeLayer(source);
 
         //The main library loads first so the embedded resolver and the program root are set before other kernel assemblies resolve
         var main = Load(Path.Combine(source, "NetCraft.dll"));
@@ -83,6 +123,30 @@ internal static class ServerLauncher
         log.GetMethod("SetConsoleLevel")!.Invoke(null, new[] { level });
         log.GetMethod("SetFileLevel")!.Invoke(null, new[] { level });
         log.GetMethod("SetVerbose")!.Invoke(null, new object?[] { true });
+    }
+
+    //PointNativeLayer tells the kernel where the native layer sits
+    //The kernel looks for it beside the program and under the program's own runtimes folder, and under runserver both of
+    //those point at ncm rather than the cache the library was downloaded into, so the cached copy is named explicitly
+    //An explicit setting from the caller wins, that is the kernel's own escape hatch
+    private static void PointNativeLayer(string source)
+    {
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable(NativePathVariable)))
+            return;
+
+        var directory = Path.Combine(source, "runtimes", RuntimeInformation.RuntimeIdentifier, "native");
+        foreach (var name in NativeLibraryNames)
+        {
+            var candidate = Path.Combine(directory, name);
+            if (!File.Exists(candidate))
+                continue;
+
+            Environment.SetEnvironmentVariable(NativePathVariable, candidate);
+            Trace.Log($"native layer pointed at {candidate}");
+            return;
+        }
+
+        Trace.Log($"no native layer under {directory}");
     }
 
     //SyncKernel copies the cached kernel assemblies into the target directory
