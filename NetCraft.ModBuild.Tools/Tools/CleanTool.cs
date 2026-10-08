@@ -119,13 +119,14 @@ internal static class CleanTool
 
     //Cached the directories ncm can rebuild, together with the name they are picked by and the name they are reported under
     //The server cache is taken wherever the project points it, which is the default location unless overridden
+    //A local kernel directory is not a cache: it is the project's own copy, so it is never removed here
     private static CacheTarget[] Cached(NcProject? project)
     {
         ServerStore.Configure(project);
         return
         [
             new("client", CacheLayout.Client, "client cache"),
-            new("server", ServerStore.Root, "server cache"),
+            new("server", ServerStore.CacheRoot, "server cache"),
             new("template", CacheLayout.Template, "template cache"),
             new("packages", CacheLayout.Packages, "package cache"),
             new("update", CacheLayout.Update, "update cache"),

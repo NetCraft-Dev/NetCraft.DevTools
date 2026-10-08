@@ -145,7 +145,7 @@ Everything ncm keeps for itself lives under the user directory — `%LOCALAPPDAT
 
 | Parameter | Description |
 |---|---|
-| `[target ...]` | Remove the named caches: `client`, `server`, `template`, `packages`, `update`. Several may be named, and nothing is asked since it was asked for. Works in and outside a project |
+| `[target ...]` | Remove the named caches: `client`, `server`, `template`, `packages`, `update`. The `server` target is the cache ncm downloads into, never a local kernel folder given to `<Sources Directory>`, which is the project's own copy. Several may be named, and nothing is asked since it was asked for. Works in and outside a project |
 | `--all` | Remove every cache without asking: the client jar, the server runtime, the template files, the packages and the update package. Installed plugins are not cache and are kept, and in a project the build cache goes as well |
 
 ### `runserver`
@@ -154,7 +154,7 @@ Build the current mod and run the NetCraft server. On the first run of a project
 
 | Parameter | Description |
 |---|---|
-| `--refresh` | Refresh the server cache against the remote index, no `ncmod.json` and no build needed |
+| `--refresh` | Refresh the server cache against the remote index, no `ncmod.json` and no build needed. A project on a local kernel directory has nothing to refresh and is told as much |
 | `[server args]` | Everything after `runserver` is passed to the server unchanged |
 
 ### `asm`
@@ -208,7 +208,7 @@ A mod project can carry a `.ncproj` file next to `ncmod.json`. It holds developm
 
 With a `.ncproj` present ncm compiles the project with Roslyn directly; without one it falls back to `dotnet build`. Tasks declared here run as `ncm <task>`.
 
-Everything the build needs at build time lives under `Build`: `Build/kernel` holds the NC reference assemblies synced from the kernel cache, `Build/packages` the packages pulled by the restore, `Build/targets` the props and targets those packages ship, `Build/obj` the intermediate directory the build targets run in, and `Build/out` the build output.
+Everything the build needs at build time lives under `Build`: `Build/kernel` holds the NC reference assemblies synced from the kernel cache, or from the local kernel directory when `<Sources>` names one, `Build/packages` the packages pulled by the restore, `Build/targets` the props and targets those packages ship, `Build/obj` the intermediate directory the build targets run in, and `Build/out` the build output.
 
 ```xml
 <ncproj version="1">
@@ -224,6 +224,7 @@ Everything the build needs at build time lives under `Build`: `Build/kernel` hol
   </References>
   <Server Cache="cache" Args="--nogui" Debug="false" />
   <Client Version="26.2" Jar="https://example.com/client.jar" Args="--username dev" />
+  <!-- Directory names a local kernel folder and stands in for the download cache, Url is used when it is not there -->
   <Sources Url="https://example.com/kernel/" Index="index.txt" Format="sha256-lines" />
   <Template Url="https://example.com/NetCraftTemplate.yaml" Base="https://example.com/NetCraftTemplate" />
   <InternalsVisibleTo>
@@ -259,7 +260,7 @@ Everything the build needs at build time lives under `Build`: `Build/kernel` hol
 | `References` | `File` — a dll path or pattern, `*`, `?` and `**` work as wildcards, used as a compile reference only; `Project` — the directory or the project file of another project, ncproj or csproj, built first so its output is up to date, then what it produced is copied beside the built assembly when it is itself a mod, and embedded into the assembly as an embedded dependency when it is not. Both paths are resolved relative to the project root |
 | `Server` | `Cache` — where the runtime files are cached, the shared download cache by default, `Args` — extra server arguments, `Debug` — always run in debug mode |
 | `Client` | `Version` — the client jar to fetch, `Jar` — a direct download url instead of the version manifest, `Args` — extra client arguments |
-| `Sources` | `Url` — where the kernel is fetched from, used as it stands so a mirror prefix can be glued in front, `Index` — the manifest file name, `Format` — `sha256-lines`, `plain` or `regex`, `Pattern` — the two capture groups, hash then path, of the regex form |
+| `Sources` | `Directory` — a local kernel folder resolved against the project root, taking the place of the cache: the build and `runserver` both read the kernel from there, and it is synced again on every build so an edited kernel shows up at once. A folder that is not there falls back to `Url` with a warning. `Url` — where the kernel is fetched from, used as it stands so a mirror prefix can be glued in front, `Index` — the manifest file name, `Format` — `sha256-lines`, `plain` or `regex`, `Pattern` — the two capture groups, hash then path, of the regex form |
 | `Template` | `Url` — where the template catalog is fetched from, `Base` — the base the example files are pulled from, replacing the one written in the catalog; either may be left out, and both take a mirror prefix the same way `Sources` does |
 | `InternalsVisibleTo` | one `Assembly` per friend assembly with `Name`, emitted as `[assembly: InternalsVisibleTo]` |
 | `AvaloniaResources` | one `Resource` per pattern with `Include`, packed into the `!AvaloniaResources` resource the Avalonia asset loader reads; every `*.axaml` of the project is picked up as well, so only plain assets have to be listed |

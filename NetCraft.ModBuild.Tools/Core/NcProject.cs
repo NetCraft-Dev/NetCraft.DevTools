@@ -141,7 +141,8 @@ public sealed class NcClient
 }
 
 //Kernel source and index parsing rules
-//Url is the base address, Index the index file name, Format how the index is read and Pattern only applies to the regex format
+//Directory is a local kernel directory standing in for the cache, Url the base address, Index the index file name,
+//Format how the index is read and Pattern only applies to the regex format
 public sealed class NcSource
 {
     //Default format reads one hash and path per line like sha256sum output
@@ -153,13 +154,18 @@ public sealed class NcSource
     //Index formats the loader understands
     public static readonly string[] Formats = [DefaultFormat, "plain", "regex"];
 
-    public NcSource(string url, string index, string format, string pattern)
+    public NcSource(string directory, string url, string index, string format, string pattern)
     {
+        Directory = directory;
         Url = url;
         Index = string.IsNullOrWhiteSpace(index) ? DefaultIndex : index;
         Format = string.IsNullOrWhiteSpace(format) ? DefaultFormat : format;
         Pattern = pattern;
     }
+
+    //Local kernel directory, relative to the project root, taking the place of the cache when it exists
+    //An empty value means the kernel is downloaded into the cache
+    public string Directory { get; }
 
     //Download base address for kernel files, empty uses the built-in one
     public string Url { get; }
@@ -740,13 +746,16 @@ public sealed class NcProject
             (string?)element.Attribute("Version") ?? string.Empty,
             (string?)element.Attribute("Jar") ?? string.Empty);
 
-    //Read the kernel source under <Sources>, treating a missing address as unconfigured since the built-in source is better
+    //Read the kernel source under <Sources>
+    //Directory names a local kernel directory that replaces the cache, and Url is the download source, which also serves
+    //as the fallback when that directory is not there; with neither one the built-in source is better and is kept
     private static NcSource? ReadSources(XElement element, string path)
     {
+        var directory = (string?)element.Attribute("Directory") ?? string.Empty;
         var url = (string?)element.Attribute("Url") ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(url))
+        if (string.IsNullOrWhiteSpace(directory) && string.IsNullOrWhiteSpace(url))
         {
-            Warn($"<Sources> in {path} has no Url, the built-in source is used");
+            Warn($"<Sources> in {path} has neither Directory nor Url, the built-in source is used");
             return null;
         }
 
@@ -758,7 +767,7 @@ public sealed class NcProject
         if (string.Equals(format, "regex", StringComparison.OrdinalIgnoreCase) && string.IsNullOrWhiteSpace(pattern))
             Warn($"Format=\"regex\" in {path} needs a Pattern, the built-in source is used");
 
-        return new NcSource(url, (string?)element.Attribute("Index") ?? string.Empty, format, pattern);
+        return new NcSource(directory, url, (string?)element.Attribute("Index") ?? string.Empty, format, pattern);
     }
 
     //Read the template source under <Template>, treating both fields being absent as unconfigured since the built-in source is better

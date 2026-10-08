@@ -34,12 +34,22 @@ public static class ServerStore
 
     private static Regex? Matcher { get; set; }
 
-    //Cache directory, overridden by the Server section of the project config when present
-    public static string Root { get; private set; } = CacheLayout.Server;
+    //Local kernel directory from the project config, taken in place of the cache, null when unset
+    private static string? Local { get; set; }
+
+    //Whether the kernel is read from a local directory rather than the cache
+    public static bool UsesLocalDirectory => Local is not null;
+
+    //Directory ncm downloads into, overridden by the Server section of the project config when present
+    //A local kernel directory does not move this, since that directory is not ncm's to fill or remove
+    public static string CacheRoot { get; private set; } = CacheLayout.Server;
+
+    //Directory the kernel is read from, which is the local directory when one is configured
+    public static string Root => Local ?? CacheRoot;
 
     public static string IndexFileName { get; private set; } = DefaultIndexFileName;
 
-    public static string IndexPath => Path.Combine(Root, IndexFileName);
+    public static string IndexPath => Path.Combine(CacheRoot, IndexFileName);
 
     //Adjust the cache location and source from the project config, keeping defaults for anything unset
     //Cache resolves against the project root, and the source swaps address and rules together, accepting only the Formats list
@@ -48,11 +58,30 @@ public static class ServerStore
         if (project is null)
             return;
 
+        Local = null;
         if (!string.IsNullOrWhiteSpace(project.Server.Cache))
-            Root = Path.GetFullPath(Path.Combine(project.Directory, project.Server.Cache));
+            CacheRoot = Path.GetFullPath(Path.Combine(project.Directory, project.Server.Cache));
 
         var source = project.Sources;
         if (source is null)
+            return;
+
+        //A local directory stands in for the cache and nothing is downloaded into it
+        //A project that names one which is not there falls through to the url, which is the fallback
+        if (!string.IsNullOrWhiteSpace(source.Directory))
+        {
+            var local = Path.GetFullPath(Path.Combine(project.Directory, source.Directory));
+            if (Directory.Exists(local))
+            {
+                Local = local;
+                return;
+            }
+
+            Console.WriteLine($"warning: <Sources Directory=\"{source.Directory}\"> does not exist, the source is used instead");
+        }
+
+        //A source with no address is the local directory setting alone, leaving the download defaults as they are
+        if (string.IsNullOrWhiteSpace(source.Url))
             return;
 
         Source = source.Url.EndsWith('/') ? source.Url : source.Url + "/";
@@ -82,6 +111,13 @@ public static class ServerStore
     //Only the local index is read, leaving the remote check to Refresh
     public static bool Ensure()
     {
+        //A local directory is the kernel itself, with nothing to fill in
+        if (Local is not null)
+        {
+            Trace.Log($"server kernel taken from local directory {Local}");
+            return true;
+        }
+
         var entries = ReadIndex();
         if (entries.Count == 0)
         {
@@ -126,6 +162,13 @@ public static class ServerStore
     //Unlike Ensure the index comes from the remote and files whose local content differs are re-downloaded
     public static bool Refresh()
     {
+        //The local directory is never downloaded into, so there is nothing to compare against an index
+        if (Local is not null)
+        {
+            Console.WriteLine($"Kernel comes from the local directory {Local}, nothing to refresh");
+            return true;
+        }
+
         Console.WriteLine($"Refreshing server cache from {Source}{IndexFileName}");
         if (!TryDownload(IndexFileName, out var error))
         {
@@ -381,8 +424,8 @@ public static class ServerStore
     {
         var normalized = relative.Replace('/', Path.DirectorySeparatorChar)
             .Replace('\\', Path.DirectorySeparatorChar);
-        var full = Path.GetFullPath(Path.Combine(Root, normalized));
-        var root = Path.GetFullPath(Root) + Path.DirectorySeparatorChar;
+        var full = Path.GetFullPath(Path.Combine(CacheRoot, normalized));
+        var root = Path.GetFullPath(CacheRoot) + Path.DirectorySeparatorChar;
         return full.StartsWith(root, StringComparison.OrdinalIgnoreCase) ? full : null;
     }
 }

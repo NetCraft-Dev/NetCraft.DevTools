@@ -4,6 +4,7 @@ namespace NetCraft.ModBuild.Tools;
 
 //KernelStore the kernel reference assemblies in a project
 //They come from the same place as the server copy, reusing the same cache and download, just placed in the project
+//A project that points at a local kernel directory takes them from there instead, and is read again on every build
 internal static class KernelStore
 {
     //Sync makes sure the kernel references are complete and reports whether they are usable
@@ -11,13 +12,16 @@ internal static class KernelStore
     public static bool Sync(string root, NcProject? project)
     {
         var destination = Path.Combine(root, ProjectLayout.Kernel);
-        if (HasAssemblies(destination))
+        ServerStore.Configure(project);
+
+        //A local kernel directory is edited in place, so it is read again on every build
+        //A destination that is already complete cannot vouch for it the way it does for a cache it was taken from
+        if (!ServerStore.UsesLocalDirectory && HasAssemblies(destination))
         {
             Trace.Log($"kernel of {root} is ready in {destination}");
             return true;
         }
 
-        ServerStore.Configure(project);
         if (!ServerStore.Ensure())
             return false;
 
