@@ -38,10 +38,10 @@ ncm template tui                # terminal panel: grade the api usage of the cur
 ncm template gui                # the same catalog and grading in a window
 ncm add nuget <id> [version]    # declare a package dependency in the .ncproj
 ncm add file <path>             # declare a managed dll as a compile reference
-ncm add project <path>          # reference another project, built first, used as a compile reference
+ncm add project <path>          # reference another project in the .ncproj
 ncm restore                     # resolve the declared packages into Build/packages/
 ncm build                       # diagnose, then build
-ncm clean [--all]               # drop the build cache, --all drops the downloads as well
+ncm clean [target] [--all]      # drop the build cache, a named cache, or every cache
 ncm runserver                   # build the mod and run the server
 ncm asm <assembly>              # inspect any .NET assembly
 ncm icon                        # write a white background mod icon
@@ -91,7 +91,7 @@ Declare a dependency or a reference in the project config. The change is written
 |---|---|
 | `nuget <id> [version]` | Add a nuget package, the version takes the same syntax as `dotnet add package` |
 | `file <path>` | Add a managed dll as a compile reference, written as a `<File>` under `<References>` |
-| `project <path>` | Add another project as a compile reference, written as a `<Project>` under `<References>` |
+| `project <path>` | Add another project as a reference, written as a `<Project>` under `<References>` |
 | `mod <id> [version]` | Add a mod dependency, not implemented yet |
 
 `file` and `project` take a path relative to the current directory and store it relative to the project root.
@@ -128,7 +128,7 @@ Resolve the `<Packages>` declared in the project config and copy their assemblie
 
 ### `build`
 
-Diagnose and build the mod project in the current directory. The kernel reference assemblies under `Build/kernel` and the declared packages are laid down first, whatever is already there is kept, and only the missing files are fetched. Referenced projects are built too and their output joins the compile references. Then the project is compiled, the build targets the packages ship are run, and the result is deployed.
+Diagnose and build the mod project in the current directory. The kernel reference assemblies under `Build/kernel` and the declared packages are laid down first, whatever is already there is kept, and only the missing files are fetched. Referenced projects are built too: one that is itself a mod is copied beside the output, so the mods directory picks it up, and anything else is embedded into the assembly as an embedded dependency. Then the project is compiled, the build targets the packages ship are run, and the result is deployed.
 
 | Parameter | Description |
 |---|---|
@@ -145,6 +145,7 @@ Everything ncm keeps for itself lives under the user directory — `%LOCALAPPDAT
 
 | Parameter | Description |
 |---|---|
+| `[target ...]` | Remove the named caches: `client`, `server`, `template`, `packages`, `update`. Several may be named, and nothing is asked since it was asked for. Works in and outside a project |
 | `--all` | Remove every cache without asking: the client jar, the server runtime, the template files, the packages and the update package. Installed plugins are not cache and are kept, and in a project the build cache goes as well |
 
 ### `runserver`
@@ -158,7 +159,7 @@ Build the current mod and run the NetCraft server. On the first run of a project
 
 ### `asm`
 
-Inspect a .NET assembly: type list, type details, decompiled source, dependencies.
+Inspect a .NET assembly: type list, type details, decompiled source, dependencies, embedded resources. A resource can also be taken out, and a file embedded into an assembly.
 
 | Parameter | Description |
 |---|---|
@@ -166,8 +167,20 @@ Inspect a .NET assembly: type list, type details, decompiled source, dependencie
 | `-t`, `--type <name>` | Show type details |
 | `-d`, `--decompile <name>` | Decompile a type to C# source |
 | `-dep`, `--dependencies` | List assembly dependencies |
+| `-res`, `--resources [name]` | List the embedded and linked resources, or extract one when a name is given |
+| `-ar`, `--add-resource <file>` | Embed a file into the target assembly as a resource, repeatable |
 | `-r`, `--reference <dir>` | Extra directory to look for dependencies, repeatable |
-| `-o`, `--output <file>` | Write the result to a file instead of the console |
+| `-o`, `--output <file>` | Write to a file: the text output, or the extracted resource |
+
+A resource name may be shortened to a unique trailing part. Extraction without `-o` lands in the current directory under the resource name.
+
+`-ar` names the resource after the file, which is how the loader matches an embedded dependency, and `ncmod.json` is the mod declaration it recognizes a mod by. A name the target already carries is replaced, so pointing at an existing resource is also how a replacement is done. Embedding rewrites the assembly, which drops a strong name signature.
+
+```
+ncm asm Build/kernel/NetCraft.Game.dll -res NetCraftGame.World.Level.Block.blocks.txt -o blocks.txt
+ncm asm Build/kernel/NetCraft.Game.dll -res blocks.txt      # same resource, into the current directory
+ncm asm Build/out/MyMod.dll -ar Build/packages/MyLib.dll    # embed a dependency into a built mod
+```
 
 ### `icon`
 
@@ -243,7 +256,7 @@ Everything the build needs at build time lives under `Build`: `Build/kernel` hol
 | `Check` | `LangVersion` — the C# version used for the api and syntax checks |
 | `Build` | `AssemblyName`, `Configuration`, `Output`, `OutputType` — `Library` (the default) or `Exe`, a plain compilation choice, ncm writes neither an apphost nor a runtimeconfig, `RootNamespace` — used as the default prefix of embedded resource names, `Nullable`, `ImplicitUsings`, `DefineConstants`, `ExtraArgs`, `DependsOnModApi` — whether the mod api is restored as a compile reference and staged next to the mod, `true` by default; set it to `false` for a pure mod that does not use the api |
 | `Packages` | one `Package` per dependency with `Id` and an optional `Version`, the version range syntax matches NuGet |
-| `References` | `File` — a dll path or pattern, `*`, `?` and `**` work as wildcards; `Project` — the directory or the project file of another project, ncproj or csproj. Both are resolved relative to the project root and only used as compile references, never embedded into the mod nor deployed. A referenced project is built first, so its output is up to date |
+| `References` | `File` — a dll path or pattern, `*`, `?` and `**` work as wildcards, used as a compile reference only; `Project` — the directory or the project file of another project, ncproj or csproj, built first so its output is up to date, then what it produced is copied beside the built assembly when it is itself a mod, and embedded into the assembly as an embedded dependency when it is not. Both paths are resolved relative to the project root |
 | `Server` | `Cache` — where the runtime files are cached, the shared download cache by default, `Args` — extra server arguments, `Debug` — always run in debug mode |
 | `Client` | `Version` — the client jar to fetch, `Jar` — a direct download url instead of the version manifest, `Args` — extra client arguments |
 | `Sources` | `Url` — where the kernel is fetched from, used as it stands so a mirror prefix can be glued in front, `Index` — the manifest file name, `Format` — `sha256-lines`, `plain` or `regex`, `Pattern` — the two capture groups, hash then path, of the regex form |
